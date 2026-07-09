@@ -1,0 +1,32 @@
+[
+  {
+    "id": "msa_formal_greeting",
+    "text": "السلام عليكم، كيف حالك اليوم؟",
+    "expected_dialect": "MSA",
+    "notes": "Clean MSA greeting"
+  },
+  {
+    "id": "msa_opinion",
+    "text": "أعتقد أن تعلم اللغة العربية مفيد جداً للعمل.",
+    "expected_dialect": "MSA",
+    "notes": "Formal opinion sentence"
+  },
+  {
+    "id": "egyptian_drift",
+    "text": "إزيك النهارده، عايز أتعلم عربي كويس.",
+    "expected_dialect": "CAI",
+    "notes": "Egyptian colloquial — should flag dialect drift"
+  },
+  {
+    "id": "gulf_drift",
+    "text": "شلونك اليوم، أبي أتعلم العربي زين.",
+    "expected_dialect": "GLF",
+    "notes": "Gulf colloquial — should flag dialect drift"
+  },
+  {
+    "id": "mixed_msa_egyptian",
+    "text": "أنا أريد أن أتعلم العربية بس مش عارف أبدأ منين.",
+    "expected_dialect": "MSA",
+    "notes": "Code-mixed — tune threshold in spike"
+  }
+]

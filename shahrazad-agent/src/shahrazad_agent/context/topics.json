@@ -1,0 +1,62 @@
+[
+  {
+    "topic_id": "greetings",
+    "title_en": "Greetings & introductions",
+    "title_ar": "التحيات والتعارف",
+    "level_hint": "A1",
+    "key_vocab": ["مرحباً", "السلام عليكم", "كيف حالك", "أهلاً وسهلاً", "اسمي", "أنا من"],
+    "comprehension_goals": [
+      "Greet someone formally in MSA",
+      "Ask and answer 'how are you'",
+      "Introduce yourself with name and origin"
+    ],
+    "conversation_agenda": [
+      "Exchange greetings (السلام عليكم / أهلاً)",
+      "Ask how the learner is and respond",
+      "Learn the learner's name ONCE — if they already said it (e.g. أنا كيا), do NOT ask again; never ask for 'full name'",
+      "Ask where they are from (accept vague answers like «من هنا»; one optional city follow-up max)",
+      "Ask what they do (study / work) — stay in introductions only; one follow-up max, then stop probing"
+    ],
+    "opening_line_ar": "أهلاً بك! أنا شهرزاد. السلام عليكم، كيف حالك اليوم؟"
+  },
+  {
+    "topic_id": "daily_routine",
+    "title_en": "Daily routine",
+    "title_ar": "الروتين اليومي",
+    "level_hint": "A2",
+    "key_vocab": ["أستيقظ", "أذهب", "أعمل", "أتناول", "المساء", "صباحاً"],
+    "comprehension_goals": [
+      "Describe morning and evening activities",
+      "Use present tense verbs correctly",
+      "Answer when-questions about schedule"
+    ],
+    "conversation_agenda": [
+      "Ask what time the learner wakes up",
+      "Ask about morning activities (breakfast, leaving home)",
+      "Ask about work or study during the day",
+      "Ask about evening routine",
+      "Ask about weekend habits — still daily life only"
+    ],
+    "opening_line_ar": "أهلاً بك! أنا شهرزاد. حدّثني عن يومك: متى تستيقظ عادةً؟"
+  },
+  {
+    "topic_id": "travel",
+    "title_en": "Travel & places",
+    "title_ar": "السفر والأماكن",
+    "level_hint": "B1",
+    "key_vocab": ["سافرت", "المطار", "الفندق", "زرت", "المدينة", "رحلة"],
+    "comprehension_goals": [
+      "Talk about a past trip",
+      "Name places visited and why",
+      "Compare cities or countries in MSA"
+    ],
+    "conversation_agenda": [
+      "Ask about a recent or favorite trip",
+      "Ask which city or country they visited",
+      "Ask how they traveled (plane, train, car)",
+      "Ask what they liked most about the place",
+      "Ask if they want to visit somewhere new — travel only"
+    ],
+    "opening_line_ar": "أهلاً بك! أنا شهرزاد. هل سافرت مؤخراً؟ إلى أين ذهبت؟"
+  }
+]

@@ -1,0 +1,3 @@
+# Optional — CAMeL-Tools dialect spike (~2GB+ with torch). Install only if disk allows:
+# pip install -r requirements-camel.txt
+camel-tools>=1.5.0

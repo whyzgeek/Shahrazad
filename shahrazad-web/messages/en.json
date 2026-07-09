@@ -1,0 +1,53 @@
+{
+  "brand": {
+    "title": "Shahrazad",
+    "subtitle": "MSA voice tutor — speak, listen, improve"
+  },
+  "topics": {
+    "heading": "Choose a conversation topic",
+    "start": "Start session",
+    "level": "Level"
+  },
+  "session": {
+    "connecting": "Connecting…",
+    "connected": "Connected",
+    "agentSpeaking": "Shahrazad is speaking",
+    "yourTurn": "Your turn — speak, then tap Done",
+    "doneSpeaking": "Done speaking",
+    "errors": "Notes captured",
+    "endSession": "End & review",
+    "transcript": "Transcript",
+    "learner": "You",
+    "tutor": "Shahrazad",
+    "practiceDrill": "Practice",
+    "practicing": "Practicing…",
+    "practiceCount": "Sentences per practice",
+    "practiceSection": "Practice",
+    "conversationSection": "Conversation",
+    "noErrors": "No notes yet — keep talking!",
+    "emptyTranscript": "Your lines will appear here after you speak.",
+    "waitingForAgent": "Waiting for Shahrazad to join…",
+    "committing": "Processing…",
+    "lessonPaused": "Lesson paused — practice in progress"
+  },
+  "review": {
+    "heading": "Session notes",
+    "playCorrect": "Hear correction",
+    "acknowledge": "Got it"
+  },
+  "flow": {
+    "stageConversation": "Conversation",
+    "stageReview": "Review notes",
+    "stageSummary": "Wrap-up",
+    "turnsProgress": "{done} of {target} turns",
+    "drillsProgress": "{done} practiced",
+    "skipStage": "Skip this step",
+    "reviewHint": "Lesson paused. Tap Practice on a note to drill — listen and repeat. Skip when you are done.",
+    "summaryTitle": "Session complete!",
+    "summaryTurns": "Turns spoken",
+    "summaryNotes": "Notes captured",
+    "summaryResolved": "Notes resolved",
+    "summaryDrillsPassed": "Drills passed",
+    "startNew": "Start a new session"
+  }
+}

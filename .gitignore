@@ -1,0 +1,41 @@
+# Secrets
+.env
+.env.local
+**/.env.local
+
+# Python
+*.pyc
+__pycache__/
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Runtime data (SQLite, learner audio, TTS cache)
+/data/
+shahrazad-agent/data/**
+!shahrazad-agent/data/.gitkeep
+*.db
+*.db-wal
+*.db-shm
+
+# Spikes
+spikes/.venv/
+spikes/results/*.json
+spikes/results/*.log
+!spikes/results/.gitkeep
+spikes/fixtures/audio/*.wav
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~

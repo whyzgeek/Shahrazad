@@ -1,0 +1,22 @@
+[
+  {
+    "id": "tutor_greeting",
+    "text": "مرحبا، ما موضوع المحادثة اليوم؟",
+    "context": "Session opener"
+  },
+  {
+    "id": "tutor_recast",
+    "text": "نعم، التعليم مهم. هل تريد أن نتحدث عن عملك؟",
+    "context": "Recast-style follow-up"
+  },
+  {
+    "id": "drill_target",
+    "text": "الْعَرَبِيَّةُ",
+    "context": "Pronunciation drill reference (may already be partially vocalized)"
+  },
+  {
+    "id": "comprehension_question",
+    "text": "ما الفكرة الرئيسية في الفيديو الذي شاهدته؟",
+    "context": "Phase 2 Shahrazad comprehension mode"
+  }
+]
