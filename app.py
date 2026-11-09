@@ -452,7 +452,8 @@ class Session:
     async def analyze(self, turn_id, turn_no, said, last_tutor, source, target):
         """Find the learner's errors after the turn, so it never delays the reply, and update their follow-up schedule."""
         try:
-            found, uses = await learner.find_errors(said, last_tutor, self.http, LLM, source, LEARNER.practising())
+            found, uses, level, struggling = await learner.find_errors(said, last_tutor, self.http, LLM, source, LEARNER.practising())
+            LEARNER.update_level(level, len(said.split()), len(found), struggling)
             rows = LEARNER.add_errors(turn_id, found)
             wrong = {e["concept"] for e in found}
             for c in wrong:
@@ -496,7 +497,8 @@ class Session:
             announced = False
             for round_no in range(0 if video and problem else MAX_TOOL_ROUNDS + 1):
                 msgs = [{"role": "system", "content": self.system_prompt()}] + self.history
-                notes = []
+                band = LEARNER.band()
+                notes = [f"The learner's current level is {band}. {learner.BAND_STYLE[band]}"]
                 s = self.ctx.subject
                 if review:
                     m, card = LEARNER.last_mistake(review), learner.CARDS[review]
@@ -506,7 +508,7 @@ class Session:
                     notes.append("A question you could ask next if it fits the conversation: " + s.questions[s.next_q])
                 seen = LEARNER.seen_rules()
                 if seen:
-                    notes.append("The learner has already met these rules: " + " ".join(seen) + " If their last sentence is correct, don't correct it or repeat it back. If it breaks one of them, don't say the correct form yet. Instead of «نقول», give a short hint in Arabic that points at the word, and stop there so they can try again, without asking any other question. If they were already hinted about this and got it wrong again, give the correct form. Correct other kinds of error as usual. When it fits, ask something whose answer would make them use one of these rules.")
+                    notes.append("The learner has already met these rules: " + " ".join(seen) + " If their last sentence is correct, don't correct it or repeat it back. " + learner.HINT_STYLE[band] + " Correct other kinds of error as usual. When it fits, ask something whose answer would make them use one of these rules.")
                 if notes:
                     # At the very end of the prompt, so everything before it stays in Gemma's cache.
                     msgs[-1] = {**msgs[-1], "content": msgs[-1]["content"] + "\n\n[Private note to the tutor, not from the learner. Never correct it or mention it. " + " ".join(notes) + "]"}
@@ -572,7 +574,7 @@ class Session:
             return
         weak = LEARNER.weak_rules()
         weak_note = f" The learner has been making mistakes with: {', '.join(weak)}. Where it fits naturally, write questions whose answer would make them use these structures." if weak else ""
-        msgs = [{"role": "system", "content": self.system_prompt()}] + self.history + [{"role": "user", "content": QUESTION_PROMPT + weak_note}]
+        msgs = [{"role": "system", "content": self.system_prompt()}] + self.history + [{"role": "user", "content": QUESTION_PROMPT + learner.QUESTION_STYLE[LEARNER.band()] + weak_note}]
         body = {"messages": msgs, "max_tokens": 700, "id_slot": 0, "chat_template_kwargs": {"enable_thinking": False}, "response_format": {"type": "json_schema", "json_schema": {"schema": QUESTION_SCHEMA}}, **SAMPLING}
         r = await self.http.post(LLM, json=body, timeout=120)
         r.raise_for_status()
@@ -590,8 +592,9 @@ async def index():
 
 @app.get("/lesson/{concept}")
 async def lesson(concept: str):
-    card = learner.CARDS.get(concept)
-    return JSONResponse(card) if card else JSONResponse({"error": "unknown"}, status_code=404)
+    if concept not in learner.CARDS:
+        return JSONResponse({"error": "unknown"}, status_code=404)
+    return JSONResponse(learner.card_view(concept, LEARNER.band()))
 
 
 @app.websocket("/ws")

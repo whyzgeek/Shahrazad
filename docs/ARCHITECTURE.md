@@ -135,6 +135,12 @@ Each topic is its own session, saved with its history, subject and list of optio
 
 Concepts the learner has got wrong come back on a schedule of 1, 3, 7 and 21 days, moving further out after a success and back after a failure. A follow-up isn't a separate exercise: at most every four turns, the tutor asks a question about whichever topic is active that the answer needs that structure for, without saying it's a review. A focused check then decides whether the learner used it correctly. A concept counts as learned after correct, unprompted use on two different days.
 
+## Level
+
+The learner's level is estimated continuously, with no setup. After each turn of four words or more, Gemma rates what was said, and the estimate moves toward that rating, adjusted for how many errors there were. Saying they don't understand lowers it. Levels only change past a clear margin, so they don't flip back and forth.
+
+The level sets how the tutor speaks, how directly it corrects, and how demanding its questions are. Cards switch to Arabic, with proper grammar terms, for advanced learners. It's stored in `data/learner.db`.
+
 ## Models and settings
 
 | Model | Source | Files used | Size | License |

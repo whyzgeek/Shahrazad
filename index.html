@@ -30,11 +30,11 @@ const setBody=(d,t)=>{d.querySelector('.ar').textContent=t;log.scrollTop=log.scr
 function addNote(e){$('notes').hidden=false;const n=document.createElement('div');n.className='note';
  const f=document.createElement('div');f.className='fix';f.dir='rtl';const s=document.createElement('s');s.textContent=e.wrong;const b=document.createElement('b');b.textContent=e.right;f.append(s,' ← ',b);
  const c=document.createElement('div');c.className='c';c.textContent=e.concept;
- const r=document.createElement('div');r.textContent=e.reminder;
+ const r=document.createElement('div');r.dir='auto';r.textContent=e.reminder;
  const more=document.createElement('button');more.textContent='Explain this';let box=null;
  more.onclick=async()=>{if(box){box.remove();box=null;more.textContent='Explain this';return}
   const l=await(await fetch('lesson/'+encodeURIComponent(e.key))).json();box=document.createElement('div');box.className='lesson';
-  const p=document.createElement('p');p.textContent=l.rule;box.append(p);
+  const p=document.createElement('p');p.dir='auto';p.textContent=l.rule;box.append(p);
   if(l.examples){const u=document.createElement('ul');u.dir='rtl';l.examples.forEach(t=>{const li=document.createElement('li');li.textContent=t;u.append(li)});box.append(u)}
   if(l.trap){const t=document.createElement('p');t.className='trap';t.textContent=l.trap;box.append(t)}
   n.insertBefore(box,more.parentNode);more.textContent='Hide'};

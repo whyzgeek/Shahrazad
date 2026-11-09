@@ -8,7 +8,36 @@ ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = Path(os.environ.get("SHAHRAZAD_LEARNER_DB", ROOT / "data/learner.db"))
 
 CARDS = yaml.safe_load((ROOT / "cards.yaml").read_text())
+CARDS_AR = yaml.safe_load((ROOT / "cards_ar.yaml").read_text())
 CONCEPTS = {k: v["title"] for k, v in CARDS.items()}
+BANDS = ("beginner", "intermediate", "advanced")
+BAND_SCORE = {"beginner": 1.0, "intermediate": 2.0, "advanced": 3.0}
+BAND_STYLE = {
+    "beginner": "Use short sentences and very common words, one idea at a time, and ask simple, concrete questions.",
+    "intermediate": "Use natural, fairly simple Arabic, and ask about reasons and meanings.",
+    "advanced": "Use full, natural Modern Standard Arabic with rich vocabulary and varied structures. Challenge the learner, and make them defend their position.",
+}
+QUESTION_STYLE = {
+    "beginner": " This learner is a beginner, so keep every question short and concrete, and make the larger questions simple choices about ideas.",
+    "intermediate": "",
+    "advanced": " This learner is advanced, so make the questions demanding and open.",
+}
+HINT_STYLE = {
+    "beginner": "If it breaks one of them, give the correct form straight away with «نقول».",
+    "intermediate": "If it breaks one of them, don't say the correct form yet. Instead of «نقول», give a short hint in Arabic that points at the word, and stop there so they can try again, without asking any other question. If they were already hinted about this and got it wrong again, give the correct form.",
+    "advanced": "If it breaks one of them, don't say the correct form or point at the exact word. Just say briefly that something in the sentence needs another look, using the grammar term, and let them find it. If they were already told and got it wrong again, give the correct form.",
+}
+
+
+def card_view(concept, band):
+    """A card in the language for this level: English by default, Arabic with proper grammar terms for advanced learners."""
+    card = dict(CARDS[concept])
+    if band == "advanced" and concept in CARDS_AR:
+        card.update(CARDS_AR[concept])
+        card.pop("trap", None)
+    return card
+
+
 # Speech recognition mishears words but rarely invents a grammar pattern, so word-level errors in speech don't get cards.
 NOT_IN_SPEECH = {"word_choice", "other"}
 NOT_ARABIC = re.compile(r"[A-Za-z0-9٠-٩]")
@@ -16,7 +45,8 @@ NOT_ARABIC = re.compile(r"[A-Za-z0-9٠-٩]")
 SCHEMA = {"type": "object", "properties": {"errors": {"type": "array", "maxItems": 8, "items": {"type": "object", "properties": {
     "wrong": {"type": "string"}, "right": {"type": "string"}, "concept": {"type": "string", "enum": [*CONCEPTS, "misheard"]}},
     "required": ["wrong", "right", "concept"]}},
-    "correct_uses": {"type": "array", "maxItems": 8, "items": {"type": "object", "properties": {"concept": {"type": "string", "enum": [*CONCEPTS]}, "quote": {"type": "string"}}, "required": ["concept", "quote"]}}}, "required": ["errors", "correct_uses"]}
+    "level": {"type": "string", "enum": [*BANDS]}, "struggling": {"type": "boolean"},
+    "correct_uses": {"type": "array", "maxItems": 8, "items": {"type": "object", "properties": {"concept": {"type": "string", "enum": [*CONCEPTS]}, "quote": {"type": "string"}}, "required": ["concept", "quote"]}}}, "required": ["errors", "correct_uses", "level", "struggling"]}
 INTERVAL_DAYS = [1, 3, 7, 21]   # gaps between follow-ups, growing as the learner succeeds
 LEARNED_AFTER_DAYS = 2          # used correctly in free speech on this many different days
 
@@ -25,6 +55,7 @@ PROMPT = f"""You review what an Arabic learner just said. The text may come from
 Go through it carefully and list every genuine Modern Standard Arabic grammar error in the learner's own words. Check each noun with its adjective, each possessive phrase, each number and the noun after it, each verb, and each preposition. Report separate errors separately: one phrase can have several. If there are none, return an empty list.
 Report only Arabic language errors. Never report facts about the world, names of people or places, numbers being wrong, disagreement with the material, or foreign words the learner mixed in.
 Do not correct style or suggest alternatives to correct language. Do not rewrite a correct sentence. Vowel marks are normally missing, so don't report them unless a visible letter is wrong.
+Also judge this text. "level" is the Arabic ability it shows, from its grammar, vocabulary and sentence structure: beginner for simple words and fragments, intermediate for connected sentences with ordinary vocabulary, advanced for complex sentences and rich vocabulary. "struggling" is true if the learner says they don't understand, can't answer, or asks to slow down.
 A short phrase answering the tutor is a fragment: judge it as a fragment, and don't require a full sentence, but still check the words it has.
 "wrong" must be copied exactly from the learner's text and be as short as possible. "right" is the corrected form of just those words.
 Use the concept "misheard" when a word makes no sense here and looks like a speech recognition mistake, not the learner's own error. Use "word_choice" for a real word used wrongly.
@@ -58,7 +89,7 @@ def clean_errors(text, found, source):
 
 
 async def find_errors(text, last_tutor, http, llm_url, source, practising=()):
-    """Returns (errors, concepts from `practising` the learner used correctly)."""
+    """Returns (errors, concepts from `practising` the learner used correctly, level shown, whether they're struggling)."""
     user = (f"The tutor had just said: {last_tutor}\n\n" if last_tutor else "") + f"The learner said: {text}"
     if practising:
         user += "\n\nIn correct_uses, list any of these concepts that the learner clearly used correctly, quoting the exact words that show it. Include one only if those words are a real example of that structure, and leave the list empty otherwise: " + ", ".join(practising)
@@ -73,7 +104,7 @@ async def find_errors(text, last_tutor, http, llm_url, source, practising=()):
     wrong_concepts = {e["concept"] for e in errors}
     said = f" {normal(text)} "
     uses = [u["concept"] for u in data.get("correct_uses", []) if len(normal(u.get("quote", "")).split()) >= 2 and f" {normal(u['quote'])} " in said]
-    return errors, [c for c in dict.fromkeys(uses) if c in practising and c not in wrong_concepts]
+    return errors, [c for c in dict.fromkeys(uses) if c in practising and c not in wrong_concepts], data.get("level", "intermediate"), bool(data.get("struggling"))
 
 
 async def check_target(text, concept, http, llm_url):
@@ -104,6 +135,8 @@ class Learner:
             for col in columns:
                 if col.split()[0] not in have:
                     self.db.execute(f"ALTER TABLE {table} ADD COLUMN {col}")
+        self.db.execute("CREATE TABLE IF NOT EXISTS profile(id INTEGER PRIMARY KEY CHECK(id=1), score REAL DEFAULT 2.0, turns INTEGER DEFAULT 0, band TEXT DEFAULT 'intermediate')")
+        self.db.execute("INSERT OR IGNORE INTO profile(id) VALUES(1)")
         self.db.execute("UPDATE concepts SET status='practising', due_at=COALESCE(due_at, ?) WHERE status='new'", (time.time(),))
         self.db.execute("UPDATE sessions SET title='Earlier conversation' WHERE title IS NULL")
         self.db.commit()
@@ -136,7 +169,7 @@ class Learner:
 
     def session_errors(self, sid):
         rows = self.db.execute("SELECT e.id, e.wrong, e.correct, e.concept FROM errors e JOIN turns t ON t.id=e.turn WHERE t.session=? AND e.dismissed=0 ORDER BY e.id", (sid,)).fetchall()
-        return [{"id": r["id"], "wrong": r["wrong"], "right": r["correct"], "key": r["concept"], "concept": CONCEPTS.get(r["concept"], r["concept"]), "reminder": CARDS.get(r["concept"], {}).get("reminder", ""), "tracked": True} for r in rows]
+        return [{"id": r["id"], "wrong": r["wrong"], "right": r["correct"], "key": r["concept"], "concept": CONCEPTS.get(r["concept"], r["concept"]), "reminder": card_view(r["concept"], self.band())["reminder"] if r["concept"] in CARDS else "", "tracked": True} for r in rows]
 
     def end_session(self, sid):
         self.db.execute("UPDATE sessions SET ended=? WHERE id=?", (time.time(), sid))
@@ -154,7 +187,7 @@ class Learner:
             if e["tracked"]:
                 # A new mistake makes the concept due again and sets its progress back a step.
                 self.db.execute("INSERT INTO concepts(concept,status,first_seen,last_seen,times,step,due_at,free_days) VALUES(?,'practising',?,?,1,0,?,'[]') ON CONFLICT(concept) DO UPDATE SET status='practising', last_seen=excluded.last_seen, times=times+1, step=MAX(step-1,0), due_at=excluded.due_at, free_days='[]'", (e["concept"], now, now, now))
-            rows.append({"id": cur.lastrowid, "wrong": e["wrong"], "right": e["right"], "key": e["concept"], "concept": CONCEPTS[e["concept"]], "reminder": CARDS[e["concept"]]["reminder"], "tracked": e["tracked"]})
+            rows.append({"id": cur.lastrowid, "wrong": e["wrong"], "right": e["right"], "key": e["concept"], "concept": CONCEPTS[e["concept"]], "reminder": card_view(e["concept"], self.band())["reminder"], "tracked": e["tracked"]})
         self.db.commit()
         return rows
 
@@ -197,6 +230,30 @@ class Learner:
             learned = len(days) >= LEARNED_AFTER_DAYS
             self.db.execute("UPDATE concepts SET free_days=?, status=?, due_at=? WHERE concept=?", (json.dumps(days), "learned" if learned else "practising", None if learned else time.time(), c)) if learned else self.db.execute("UPDATE concepts SET free_days=? WHERE concept=?", (json.dumps(days), c))
         self.db.commit()
+
+    def band(self):
+        return self.db.execute("SELECT band FROM profile WHERE id=1").fetchone()["band"]
+
+    def update_level(self, rating, words, errors, struggling):
+        """Move the level estimate after each informative turn. Early turns count more, and bands need a clear margin to change."""
+        row = self.db.execute("SELECT score, turns, band FROM profile WHERE id=1").fetchone()
+        score, turns, band = row["score"], row["turns"], row["band"]
+        if struggling:
+            score -= 0.25
+        elif words >= 4:
+            observed = BAND_SCORE.get(rating, 2.0) - (0.5 if errors / max(words, 1) > 0.2 else 0.0)
+            score += (0.5 if turns < 3 else 0.2) * (observed - score)
+            turns += 1
+        score = min(max(score, 1.0), 3.0)
+        if band != "beginner" and score < 1.5:
+            band = "beginner"
+        elif band != "advanced" and score > 2.5:
+            band = "advanced"
+        elif band == "advanced" and score < 2.3 or band == "beginner" and score > 1.7:
+            band = "intermediate"
+        self.db.execute("UPDATE profile SET score=?, turns=?, band=? WHERE id=1", (score, turns, band))
+        self.db.commit()
+        return band
 
     def weak_rules(self, limit=3):
         """The rules this learner trips on most, for steering the discussion toward them."""

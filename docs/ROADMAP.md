@@ -24,7 +24,7 @@ Everything here runs without setup screens or extra questions, and the conversat
 - Hints in place of answers for rules the learner has already seen (done).
 - Sessions by topic that the learner can switch between and continue (done).
 - Spaced follow-up over days, asked within whichever topic is active. A concept counts as learned only when it's used correctly in free speech on two different days (done).
-- Continuous assessment of the learner's level, adjusting speech, corrections, cards and questions.
+- Continuous assessment of the learner's level, adjusting speech, corrections, cards and questions (done).
 
 ## Phase 4: more natural conversation
 
