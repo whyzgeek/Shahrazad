@@ -137,20 +137,58 @@ def split_long(text, limit=MAX_VOICE_WORDS):
 
 
 def merge_vowels(plain, vowelled):
-    """Keep the tutor's exact words: take a vowelled word only where its letters match the original."""
+    """Keep the tutor's words: take a vowelled word where its letters match the original or differ only slightly."""
     a, b = plain.split(), vowelled.split()
-    sm = difflib.SequenceMatcher(None, [DIAC.sub("", w) for w in a], [DIAC.sub("", w) for w in b], autojunk=False)
+    plain_a, plain_b = [DIAC.sub("", w) for w in a], [DIAC.sub("", w) for w in b]
     out = list(a)
-    for m in sm.get_matching_blocks():
-        out[m.a:m.a + m.size] = b[m.b:m.b + m.size]
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, plain_a, plain_b, autojunk=False).get_opcodes():
+        if tag == "equal":
+            out[i1:i2] = b[j1:j2]
+        elif tag == "replace" and i2 - i1 == j2 - j1:  # a small spelling fix like عرج to أعرج beats sending the word without vowels
+            for k in range(i2 - i1):
+                if difflib.SequenceMatcher(None, plain_a[i1 + k], plain_b[j1 + k]).ratio() >= 0.7:
+                    out[i1 + k] = b[j1 + k]
     return " ".join(out)
+
+
+def fix_initial_sukun(text):
+    """Arabic words can't start with a vowelless consonant, so foreign names like تْرَامْب get a short vowel to be readable."""
+    return " ".join(re.sub(r"^([\u0621-\u064A])\u0652", "\\1\u0650", w) for w in text.split())
+
+
+def bare_words(text):
+    """Positions of Arabic words that came back with no vowel marks at all."""
+    return [i for i, w in enumerate(text.split()) if len(ARABIC.findall(w)) > 1 and not DIAC.search(w)]
+
+
+async def vowel_words(sentence, words, http):
+    """Vowel specific words on their own, for when the first pass changed their letters. Only exact-letter results are accepted."""
+    schema = {"type": "object", "properties": {"words": {"type": "array", "items": {"type": "string"}, "minItems": len(words), "maxItems": len(words)}}, "required": ["words"]}
+    ask = f"Add full Arabic vowel marks to each listed word, as it is used in this sentence. Keep every word exactly as written: don't change, add or remove any letter, even if the word looks wrong.\nSentence: {sentence}\nWords: {json.dumps(words, ensure_ascii=False)}"
+    body = {"messages": [{"role": "user", "content": ask}], "max_tokens": 300, "temperature": 0, "id_slot": 1, "chat_template_kwargs": {"enable_thinking": False}, "response_format": {"type": "json_schema", "json_schema": {"schema": schema}}}
+    r = await http.post(LLM, json=body, timeout=60)
+    r.raise_for_status()
+    got = json.loads(r.json()["choices"][0]["message"]["content"])["words"]
+    return [g if DIAC.sub("", g) == w else w for g, w in zip(got, words)]
 
 
 async def vowelize(plain, http):
     out = ""
     async for piece in chat([{"role": "user", "content": VOWEL_PROMPT + plain}], http, {"temperature": 0}, 600):
         out += piece
-    return merge_vowels(plain, out.strip())
+    text = merge_vowels(plain, out.strip())
+    bare = bare_words(text)
+    if bare:
+        tokens = text.split()
+        parts = [re.match(r"^(\W*)(.*?)(\W*)$", tokens[i]).groups() for i in bare]
+        try:
+            fixed = await vowel_words(plain, [p[1] for p in parts], http)
+            for i, (lead, _, tail), word in zip(bare, parts, fixed):
+                tokens[i] = lead + word + tail
+            text = " ".join(tokens)
+        except Exception as e:  # a bare word is still better than losing the sentence
+            print(f"word vowelling failed: {type(e).__name__}", flush=True)
+    return fix_initial_sukun(text)
 
 
 learner_default_title = "New conversation"
@@ -468,6 +506,25 @@ class Session:
         except Exception as e:  # never let analysis disturb the conversation
             print(f"error analysis failed: {type(e).__name__}: {e}", flush=True)
 
+    async def replay(self, turn_id):
+        """Speak a saved reply again."""
+        gen = self.gen
+        row = LEARNER.turn_for_replay(turn_id, self.session_id)
+        if not row:
+            await self.send(type="replay_done")
+            return
+        parts = json.loads(row["spoken"]) if row["spoken"] else []
+        if not parts:  # older turns weren't saved with their vowels
+            parts = [await vowelize(clean_text(s), self.http) for s in split_sentences(row["reply"]) if speakable(s)]
+        for sentence in parts:
+            for part in split_long(sentence):
+                r = await self.http.post(SPARK, json={"text": part}, timeout=60)
+                r.raise_for_status()
+                if gen != self.gen:
+                    return
+                await self.ws.send_bytes(r.content)
+        await self.send(type="replay_done")
+
     async def respond(self, user, t_end, source="typed"):
         gen = self.gen
         self.history.append({"role": "user", "content": user})
@@ -545,7 +602,8 @@ class Session:
             raise
         last_tutor = next((m["content"] for m in reversed(self.history[:-1]) if m["role"] == "assistant"), "")
         self.history.append({"role": "assistant", "content": full})
-        turn_id = LEARNER.add_turn(self.session_id, source, user, full, self.ctx.subject.title if self.ctx.subject else None)
+        turn_id = LEARNER.add_turn(self.session_id, source, user, full, self.ctx.subject.title if self.ctx.subject else None, shown)
+        await self.send(type="turn", id=turn_id)
         if not youtube.find_video(user) and ARABIC.search(user):
             self.analysis.append(asyncio.create_task(self.analyze(turn_id, self.turn_no, user, last_tutor, source, target)))
         subject = self.ctx.subject
@@ -623,6 +681,9 @@ async def ws_endpoint(ws: WebSocket):
                     await s.new_session()
                 elif d["type"] == "switch":
                     await s.switch_session(int(d["id"]))
+                elif d["type"] == "replay":
+                    await s.cancel_reply()
+                    s.reply = asyncio.create_task(s.replay(int(d["turn"])))
                 elif d["type"] == "dismiss":
                     LEARNER.dismiss(int(d["id"]))
         except (WebSocketDisconnect, RuntimeError):

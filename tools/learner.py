@@ -130,7 +130,7 @@ class Learner:
             CREATE TABLE IF NOT EXISTS errors(id INTEGER PRIMARY KEY, turn INTEGER, at REAL, wrong TEXT, correct TEXT, concept TEXT, tracked INTEGER, dismissed INTEGER DEFAULT 0);
             CREATE TABLE IF NOT EXISTS concepts(concept TEXT PRIMARY KEY, status TEXT DEFAULT 'new', first_seen REAL, last_seen REAL, times INTEGER DEFAULT 0, step INTEGER DEFAULT 0, due_at REAL, free_days TEXT DEFAULT '[]');
         """)
-        for table, columns in (("sessions", ("title TEXT", "state TEXT", "updated REAL")), ("concepts", ("step INTEGER DEFAULT 0", "due_at REAL", "free_days TEXT DEFAULT '[]'"))):
+        for table, columns in (("sessions", ("title TEXT", "state TEXT", "updated REAL")), ("turns", ("spoken TEXT",)), ("concepts", ("step INTEGER DEFAULT 0", "due_at REAL", "free_days TEXT DEFAULT '[]'"))):
             have = {r["name"] for r in self.db.execute(f"PRAGMA table_info({table})")}
             for col in columns:
                 if col.split()[0] not in have:
@@ -165,7 +165,11 @@ class Learner:
         return [dict(r) for r in rows]
 
     def session_turns(self, sid):
-        return [dict(r) for r in self.db.execute("SELECT said, reply FROM turns WHERE session=? ORDER BY id", (sid,))]
+        return [dict(r) for r in self.db.execute("SELECT id, said, reply FROM turns WHERE session=? ORDER BY id", (sid,))]
+
+    def turn_for_replay(self, turn_id, sid):
+        row = self.db.execute("SELECT reply, spoken FROM turns WHERE id=? AND session=?", (turn_id, sid)).fetchone()
+        return dict(row) if row else None
 
     def session_errors(self, sid):
         rows = self.db.execute("SELECT e.id, e.wrong, e.correct, e.concept FROM errors e JOIN turns t ON t.id=e.turn WHERE t.session=? AND e.dismissed=0 ORDER BY e.id", (sid,)).fetchall()
@@ -175,8 +179,8 @@ class Learner:
         self.db.execute("UPDATE sessions SET ended=? WHERE id=?", (time.time(), sid))
         self.db.commit()
 
-    def add_turn(self, sid, source, said, reply, subject):
-        cur = self.db.execute("INSERT INTO turns(session,at,source,said,reply,subject) VALUES(?,?,?,?,?,?)", (sid, time.time(), source, said, reply, subject))
+    def add_turn(self, sid, source, said, reply, subject, spoken):
+        cur = self.db.execute("INSERT INTO turns(session,at,source,said,reply,subject,spoken) VALUES(?,?,?,?,?,?,?)", (sid, time.time(), source, said, reply, subject, json.dumps(spoken, ensure_ascii=False)))
         self.db.commit()
         return cur.lastrowid
 

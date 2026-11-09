@@ -8,7 +8,7 @@ set -a; . ./.env; set +a
 : "${GPU_LLM:=0}" "${GPU_ASR:=1}" "${GPU_VOICE:=$GPU_LLM}" "${GEMMA_CPU_MOE:=16}" "${VOXTRAL_GPU_FRACTION:=0.91}" "${TUTOR_HOST:=127.0.0.1}"
 : "${VOXTRAL_PORT:=18098}" "${GEMMA_PORT:=18099}" "${SPARK_LM_PORT:=18097}" "${SPARK_PORT:=18096}" "${TUTOR_PORT:=8791}"
 export SHAHRAZAD_MODELS VOXTRAL_PORT GEMMA_PORT SPARK_LM_PORT SPARK_PORT TUTOR_PORT
-[ -n "$SHAHRAZAD_REF_AUDIO" ] && [ -f "$SHAHRAZAD_REF_AUDIO" ] || { echo "SHAHRAZAD_REF_AUDIO must point to a reference voice clip you have the rights to."; exit 1; }
+[ -n "$SHAHRAZAD_REF_AUDIO" ] && [ -f "$SHAHRAZAD_REF_AUDIO" ] || { echo "SHAHRAZAD_REF_AUDIO must point to a voice clip. The default is assets/default_voice.wav."; exit 1; }
 LIFE=$(( ${TUTOR_MAX_HOURS:-8} * 3600 )); R=run; mkdir -p "$R" data; M=$SHAHRAZAD_MODELS
 
 is_up(){ [ "$(timeout 3 curl -k -s -o /dev/null "$1" -w '%{http_code}')" = 200 ]; }

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Shahrazad's installer. It checks what this machine already has and does only what's missing, so it's safe to re-run.
 #
-#   ./install.sh --ref-audio voice.wav         # install for use on this computer
-#   ./install.sh --ref-audio voice.wav --lan   # also serve over HTTPS on this computer's network address
+#   ./install.sh         # install for use on this computer
+#   ./install.sh --lan   # also serve over HTTPS on this computer's network address
 #
 # Options:
-#   --ref-audio FILE     a short, clear Arabic recording of a voice you have the right to use (WAV, 6-10 s)
+#   --ref-audio FILE     use a different voice: a clear recording you have the right to use (WAV, 6-10 s)
 #   --lan [IP]           serve on the network, with a self-signed certificate. Without an IP, it is detected.
 #   --models DIR         where models live or should be downloaded (default ./models)
 #   --llama-server FILE  use this llama-server build
@@ -168,7 +168,8 @@ fi
 step "Reference voice"
 [ "$CHECK" = 0 ] && [ -n "$REF" ] && { [ -f "$REF" ] || die "reference audio not found: $REF"; env_set SHAHRAZAD_REF_AUDIO "$(abs_path "$REF")"; }
 R=$(env_get SHAHRAZAD_REF_AUDIO)
-if [ -n "$R" ] && [ -f "$R" ]; then ok "$R"; else todo "a voice recording you have the right to use: re-run with --ref-audio FILE"; fi
+if [ -z "$R" ]; then R=assets/default_voice.wav; [ "$CHECK" = 0 ] && env_set SHAHRAZAD_REF_AUDIO "$R"; fi
+if [ -f "$R" ]; then ok "$R"; else todo "the voice recording $R: re-run with --ref-audio FILE"; fi
 
 # ---------------------------------------------------------------- hardware
 step "Hardware"

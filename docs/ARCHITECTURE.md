@@ -177,7 +177,7 @@ The frontend is one static file, `index.html`, with no build step or external li
 - **Secure context:** browsers only allow the microphone on HTTPS or `localhost`. The page is reached through a self-signed HTTPS address on the local network, or an SSH tunnel to `localhost:8791`.
 - **Controls:** hold the button or the space bar to talk, with a 5-minute limit per turn. A text box allows typing instead, and "New conversation" clears the history.
 - **Display:** each tutor message shows the reply, then the vowelled text the voice received, then the time to first audio.
-- **Playback:** WAV sentences are queued with the Web Audio API so they play back to back.
+- **Playback:** WAV sentences are queued with the Web Audio API so they play back to back. Each tutor message has a Replay button, which speaks it again from its saved vowelled text.
 
 ### WebSocket protocol (`/ws`)
 
@@ -194,6 +194,8 @@ The frontend is one static file, `index.html`, with no build step or external li
 | Server to browser | `tashkeel` | Vowelled text spoken so far |
 | Server to browser | `text_only` | A sentence was shown but not spoken |
 | Server to browser | `timing` | Stage timings for the turn |
+| Server to browser | `turn` | The saved turn's id, used by Replay |
+| Browser to server | `{"type":"replay","turn":id}` | Speak a saved reply again |
 | Server to browser | `error` | Error message for the status line |
 | Server to browser | Binary | One WAV sentence |
 

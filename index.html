@@ -9,7 +9,7 @@ h1{font-size:16px;margin:0}button{font:inherit;cursor:pointer}.hd{display:flex;g
 #wrap{flex:1;display:flex;min-height:0}#log{flex:1;min-width:0;overflow-y:auto;padding:16px;max-width:760px;margin:0 auto}#notes{width:280px;flex:none;overflow-y:auto;padding:12px 14px;border-left:1px solid var(--line)}#notes h2{font-size:13px;margin:0 0 8px;color:var(--mut);font-weight:600}.note{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:13px}.note .fix{font-family:'Noto Naskh Arabic',Amiri,Tahoma,serif;font-size:1.25em;line-height:1.8}.note s{color:var(--acc2)}.note b{color:var(--acc);font-weight:600}.note .c{color:var(--mut);font-size:12px}.note button{background:none;border:0;padding:0;color:var(--mut);font-size:12px;text-decoration:underline}.note .act{display:flex;gap:12px;margin-top:4px}.lesson{margin-top:6px;border-top:1px dashed var(--line);padding-top:6px}.lesson p{margin:4px 0}.lesson ul{margin:4px 0;padding-right:18px;font-family:'Noto Naskh Arabic',Amiri,Tahoma,serif;font-size:1.15em;line-height:1.7}.lesson .trap{color:var(--mut)}@media (max-width:800px){#wrap{flex-direction:column}#notes{width:auto;max-height:26vh;border-left:0;border-top:1px solid var(--line)}}
 .m{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin:10px 0}.me{background:var(--me)}
 .ar{font-family:'Noto Naskh Arabic',Amiri,Tahoma,serif;font-size:1.45em;line-height:1.9}.t{color:var(--acc);font-size:1.3em;margin-top:6px;border-top:1px dashed var(--line);padding-top:6px}
-.src{font-size:13px;color:var(--mut);margin:6px 2px}.src a{color:var(--acc)}.who{font-size:12px;color:var(--mut)}.time{font-size:12px;color:var(--mut);margin-top:4px}
+.src{font-size:13px;color:var(--mut);margin:6px 2px}.src a{color:var(--acc)}.replay.on{background:var(--acc);border-color:var(--acc);color:#fff}.replay{display:block;margin-top:6px;background:none;border:1px solid var(--line);border-radius:6px;color:var(--mut);font-size:12px;padding:2px 8px}.who{font-size:12px;color:var(--mut)}.time{font-size:12px;color:var(--mut);margin-top:4px}
 footer{padding:12px 16px 18px;border-top:1px solid var(--line);max-width:760px;width:100%;margin:auto}
 #talk{width:100%;padding:18px;font-size:18px;border:0;border-radius:10px;background:var(--acc);color:#fff;touch-action:none;user-select:none}#talk.on{background:var(--acc2)}#talk:disabled{opacity:.5}
 form{display:flex;gap:8px;margin-top:10px}#txt{flex:1;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);min-width:0}form button{padding:8px 14px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg)}
@@ -41,12 +41,17 @@ function addNote(e){$('notes').hidden=false;const n=document.createElement('div'
  const act=document.createElement('div');act.className='act';
  const x=document.createElement('button');x.textContent="That's not what I said";x.onclick=()=>{ws.send(JSON.stringify({type:'dismiss',id:e.id}));n.remove();if(!$('notelist').children.length)$('notes').hidden=true};
  act.append(more,x);n.append(f,c,r,act);$('notelist').prepend(n)}
+function addReplay(el,id){if(el.querySelector('.replay'))return;const b=document.createElement('button');b.className='replay';b.textContent='▶ Replay';
+ b.onclick=()=>{stopAudio();play=play||new AudioContext();play.resume();replayBtn=b;replayDone=false;b.classList.add('on');ws.send(JSON.stringify({type:'replay',turn:id}))};el.append(b)}
 function card(kind,title,url){const d=document.createElement('div');d.className='src';const b=document.createElement('b');b.textContent=kind+': ';d.append(b);
  if(/^https?:\/\//.test(url)){const l=document.createElement('a');l.href=url;l.target='_blank';l.rel='noopener noreferrer';l.textContent=title;d.append(l)}else d.append(title);log.append(d);log.scrollTop=log.scrollHeight}
-function stopAudio(){sources.forEach(s=>{try{s.stop()}catch(e){}});sources=[];nextAt=0}
-async function queue(buf){play=play||new AudioContext();if(play.state==='suspended')await play.resume();
+let replayBtn=null,replayDone=false,decoding=0;
+function endReplay(){if(replayBtn)replayBtn.classList.remove('on');replayBtn=null;replayDone=false}
+function checkReplay(){if(replayBtn&&replayDone&&decoding===0&&sources.length===0)endReplay()}
+function stopAudio(){sources.forEach(s=>{try{s.stop()}catch(e){}});sources=[];nextAt=0;endReplay()}
+async function queue(buf){decoding++;try{play=play||new AudioContext();if(play.state==='suspended')await play.resume();
  const a=await play.decodeAudioData(buf),s=play.createBufferSource();s.buffer=a;s.connect(play.destination);
- const at=Math.max(play.currentTime+.03,nextAt);s.start(at);nextAt=at+a.duration;sources.push(s);s.onended=()=>{sources=sources.filter(x=>x!==s)}}
+ const at=Math.max(play.currentTime+.03,nextAt);s.start(at);nextAt=at+a.duration;sources.push(s);s.onended=()=>{sources=sources.filter(x=>x!==s);checkReplay()}}finally{decoding--;checkReplay()}}
 function connect(){ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');ws.binaryType='arraybuffer';
  ws.onopen=()=>{talk.disabled=false;talk.textContent=IDLE;st.textContent=''};
  ws.onclose=()=>{talk.disabled=true;talk.textContent='Reconnecting…';setTimeout(connect,1500)};
@@ -57,9 +62,11 @@ function connect(){ws=new WebSocket((location.protocol==='https:'?'wss://':'ws:/
   else if(m.type==='status'){st.textContent=m.text}
   else if(m.type==='subject'){card(m.kind==='video'?'Video':'Article',m.title+(m.sections>1?' ('+m.section+'/'+m.sections+')':''),m.url);st.textContent=''}
   else if(m.type==='items'){m.items.forEach((it,i)=>card('Option '+(i+1),it.title,it.url));st.textContent=''}
+  else if(m.type==='turn'&&bot){addReplay(bot,m.id)}
+  else if(m.type==='replay_done'){replayDone=true;checkReplay()}
   else if(m.type==='errors'){m.errors.forEach(addNote)}
   else if(m.type==='sessions'){const v=$('sessions');v.textContent='';m.sessions.forEach(x=>{const o=document.createElement('option');o.value=x.id;o.textContent=x.title+' ('+x.turns+')';v.append(o)});v.value=String(m.current)}
-  else if(m.type==='session'){stopAudio();me=bot=null;log.textContent='';$('notelist').textContent='';$('notes').hidden=true;st.textContent='';if(m.subject)card(m.subject.kind==='video'?'Video':'Article',m.subject.title,m.subject.url);m.turns.forEach(t=>{setBody(bubble('me','You'),t.said);setBody(bubble('','Tutor'),t.reply)});m.errors.forEach(addNote);bot=null;me=null}
+  else if(m.type==='session'){stopAudio();me=bot=null;log.textContent='';$('notelist').textContent='';$('notes').hidden=true;st.textContent='';if(m.subject)card(m.subject.kind==='video'?'Video':'Article',m.subject.title,m.subject.url);m.turns.forEach(t=>{setBody(bubble('me','You'),t.said);const b=bubble('','Tutor');setBody(b,t.reply);if(t.id)addReplay(b,t.id)});m.errors.forEach(addNote);bot=null;me=null}
   else if(m.type==='text_only'){st.textContent='Shown as text only: the Arabic voice can’t read that language.'}
   else if(m.type==='tashkeel'&&bot){let t=bot.querySelector('.t');if(!t){t=document.createElement('div');t.className='ar t';t.dir='auto';bot.append(t)}t.textContent=m.text;log.scrollTop=log.scrollHeight}
   else if(m.type==='timing'&&bot){const t=document.createElement('div');t.className='time';t.textContent='First audio '+(m.end_of_speech_to_first_audio_s??'–')+' s after you stopped';bot.append(t)}

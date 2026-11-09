@@ -20,7 +20,6 @@ This project is early and has only been run on that one machine.
 - NVIDIA GPU memory as described below, and about 40 GB of disk
 - A recent llama.cpp build with `draft-mtp` support
 - Python 3.12, and the `hf` CLI for downloads
-- A short recording of an Arabic voice you have the right to use
 
 ### Which hardware works
 
@@ -41,7 +40,7 @@ To preview other hardware, run for example `scripts/configure.py --gpus 16,8 --r
 ## Install
 
 ```bash
-./install.sh --ref-audio voice.wav
+./install.sh
 ```
 
 The installer checks what your machine already has and does only what's missing: Python environments, a llama.cpp build, about 28 GB of model downloads, the Spark conversion, and the GPU layout for your hardware. It's safe to run again, and an interrupted download resumes. `./install.sh --check` reports what's needed without changing anything.
@@ -69,5 +68,7 @@ The models are downloaded from their original repositories, and each has its own
 | [Voxtral Mini 4B Realtime Arabic](https://huggingface.co/mistralai/Voxtral-Mini-4B-Realtime-Arabic) | Apache-2.0 |
 | [Gemma 4 26B-A4B QAT GGUF](https://huggingface.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF) | Apache-2.0 |
 | [Arabic-TTS-Spark](https://huggingface.co/IbrahimSalah/Arabic-TTS-Spark) | Non-commercial |
+
+The tutor's default voice, `assets/default_voice.wav`, is a clip from the [ManaTTS](https://huggingface.co/datasets/MahtaFetrat/Mana-TTS) dataset, released under CC0. To use another voice, pass `--ref-audio FILE` with a recording you have the right to use.
 
 Because of Spark's license, the tutor as a whole is for personal, educational and research use.

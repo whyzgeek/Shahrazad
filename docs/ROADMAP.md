@@ -40,4 +40,4 @@ Everything here runs without setup screens or extra questions, and the conversat
 
 ## Before publishing a model
 
-Spark's weights are non-commercial, so its converted GGUF can be shared only if its terms allow redistribution. The current reference voice is not part of this repository and has to be replaced by one with clear rights.
+Spark's weights are non-commercial, so its converted GGUF can be shared only if its terms allow redistribution. The default voice is a CC0 clip, so it can be shared.
