@@ -9,6 +9,7 @@ from pathlib import Path
 import httpx, uvicorn, websockets
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from tools import learner, youtube
 from tools.registry import Context, Registry
@@ -43,6 +44,7 @@ FILLER_VIDEO = "لَحْظَةً، سَأَفْتَحُ الْفِيدْيُو."
 LOG = ROOT / "data/sessions_timing.jsonl"
 
 app = FastAPI()
+app.mount("/assets", StaticFiles(directory=ROOT / "assets"), name="assets")
 
 ARABIC = re.compile(r"[ء-ي]")
 LATIN = re.compile(r"[A-Za-z]")

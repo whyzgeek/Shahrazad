@@ -71,4 +71,6 @@ The models are downloaded from their original repositories, and each has its own
 
 The tutor's default voice, `assets/default_voice.wav`, is a clip from the [ManaTTS](https://huggingface.co/datasets/MahtaFetrat/Mana-TTS) dataset, released under CC0. To use another voice, pass `--ref-audio FILE` with a recording you have the right to use.
 
+The logo was generated with Qwen-Image 2.1.
+
 Because of Spark's license, the tutor as a whole is for personal, educational and research use.
