@@ -24,6 +24,9 @@ class Subject:
     url: str
     sections: list = field(default_factory=list)
     index: int = 0
+    questions: list = field(default_factory=list)   # prepared questions for the current section
+    next_q: int = 0
+    planned_for: int = -1                           # the section the questions were written for
 
     @property
     def text(self):

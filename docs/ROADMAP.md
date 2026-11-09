@@ -16,16 +16,20 @@ Add a login before the tutor is shared more widely.
 
 ## Phase 3: learning features
 
-- Save the learner's mistakes during conversation, and review them as notes.
-- Practice drills built from those mistakes, then a short wrap-up.
-- Choose a topic and level when starting a session.
-- Interval review over multiple sessions.
+Everything here runs without setup screens or extra questions, and the conversation never pauses.
+
+- Specific questions tied to the material, in place of generic ones (done).
+- A local learner record of sessions and errors, by grammar concept.
+- Every error is corrected. A brief card appears in a side panel, and a learner who wants more taps "Explain this" for a fuller lesson. A first error may be a slip, so nothing assumes they don't know the rule.
+- Hints in place of answers for rules the learner has already seen.
+- Spaced follow-up over days. A concept counts as learned only when it's used correctly in free speech on two different days.
+- Continuous assessment of the learner's level, adjusting speech, corrections, cards and questions.
 
 ## Phase 4: more natural conversation
 
 - Automatic detection of when the learner starts and stops talking, with no button.
 - Lower delay, mainly by vowelling sentence by sentence while the reply is still being written.
-- Speaking English and Persian explanations.
+- Speaking explanations in other languages.
 - True full duplex, through an Arabic fine-tune of a full-duplex model.
 
 ## Hardware

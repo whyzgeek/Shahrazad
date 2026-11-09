@@ -78,7 +78,7 @@ The complete reply is generated before vowelling starts. Gemma has two slots, on
 ### Text handling between the models
 
 1. `split_sentences` splits the reply and merges one- or two-word fragments forward.
-2. `speakable` holds back sentences that are mostly English or Persian. These are shown on screen but not spoken, because the voice only reads Arabic.
+2. `speakable` holds back sentences that are mostly not Arabic. These are shown on screen but not spoken, because the voice only reads Arabic.
 3. `clean_text` removes quotes, markdown and any existing vowel marks, and turns "…" into a comma.
 4. `vowelize` asks Gemma to add full tashkeel, including case endings.
 5. `merge_vowels` keeps the tutor's exact words. A vowelled word is accepted only if its letters match the original; otherwise the original word is kept, without vowels.
@@ -116,6 +116,8 @@ A conversation has a **current subject**: an article or a video. Tools are used 
 - *Long videos:* captions are split into sections of about 14,000 characters, and `next_section` moves on.
 
 Tool results go into the system prompt instead of tool-role messages, because Gemma sometimes emits only its thinking marker right after a tool message. Results and subjects are marked as untrusted, and all tools are read-only.
+
+After a subject's first reply, Gemma prepares six specific questions from it: facts, reasons, a comparison and a position to defend. Each turn offers the next one, which it can adapt to what the learner just said.
 
 Opening a subject costs one slow turn, because Gemma has to read it: about 20 s for a 5,000-token video section on the test machine. The spoken "one moment" plays first, and later turns are cached.
 
@@ -227,7 +229,7 @@ The tutor needs both GPUs, so other GPU workloads have to be stopped first.
 ## Current limits
 
 - The tutor is push-to-talk, not full duplex.
-- English and Persian explanations are text only.
+- Explanations in other languages are text only.
 - Voxtral sometimes corrects a learner's mistake while transcribing, which hides it from the tutor. This has been seen once on synthetic speech and has not been measured on real learners.
 - About 1 word in 50 can still get a wrong ending from Gemma's vowelling, and Spark reads what it is given.
 - Gemma can still make grammar errors of its own.

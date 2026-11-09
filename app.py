@@ -24,6 +24,8 @@ PORT = int(os.environ.get("TUTOR_PORT", "8791"))
 
 SYSTEM = (ROOT / "prompts/system.txt").read_text().strip()
 VOWEL_PROMPT = (ROOT / "prompts/vowelize.txt").read_text().strip() + "\n"
+QUESTION_PROMPT = (ROOT / "prompts/questions.txt").read_text().strip()
+QUESTION_SCHEMA = {"type": "object", "properties": {"questions": {"type": "array", "minItems": 6, "maxItems": 6, "items": {"type": "string"}}}, "required": ["questions"]}
 SAMPLING = {"temperature": 1.0, "top_p": 0.95, "top_k": 64}  # Google's recommended values for Gemma 4
 HISTORY_MESSAGES = 24
 MAX_TOOL_ROUNDS = 2
@@ -41,17 +43,13 @@ app = FastAPI()
 
 ARABIC = re.compile(r"[ء-ي]")
 LATIN = re.compile(r"[A-Za-z]")
-PERSIAN = re.compile(r"[پچژگکی]")
 DIAC = re.compile(r"[ً-ْٰ]")
 
 
 def speakable(s):
-    """False for English or Persian sentences: the Arabic voice would garble them, so they are shown only."""
+    """False for sentences that are mostly not Arabic: the Arabic voice would garble them, so they are shown only."""
     a, l = len(ARABIC.findall(s)), len(LATIN.findall(s))
-    if a == 0 or l > 0.3 * (a + l):
-        return False
-    words = s.split()
-    return sum(1 for w in words if PERSIAN.search(w)) <= 0.3 * max(len(words), 1)
+    return a > 0 and l <= 0.3 * (a + l)
 
 
 def clean_text(s):
@@ -381,6 +379,10 @@ class Session:
             announced = False
             for round_no in range(0 if video and problem else MAX_TOOL_ROUNDS + 1):
                 msgs = [{"role": "system", "content": self.system_prompt()}] + self.history
+                s = self.ctx.subject
+                if s and s.next_q < len(s.questions):
+                    # At the very end of the prompt, so everything before it stays in Gemma's cache.
+                    msgs[-1] = {**msgs[-1], "content": msgs[-1]["content"] + "\n\n[Private note to the tutor, not from the learner, never correct or mention it. A question you could ask next if it fits the conversation: " + s.questions[s.next_q] + "]"}
                 text, calls = await stream_turn(msgs, self.http, self.tool_schemas() if round_no < MAX_TOOL_ROUNDS else None, on_text)
                 if not calls:
                     break
@@ -413,6 +415,9 @@ class Session:
             self.history.append({"role": "assistant", "content": full})  # keep what was said before the interruption
             raise
         self.history.append({"role": "assistant", "content": full})
+        subject = self.ctx.subject
+        if subject and subject.planned_for == subject.index:
+            subject.next_q += 1
         await self.send(type="timing", **t)
         LOG.parent.mkdir(exist_ok=True)
         with open(LOG, "a") as f:  # timings only, never the conversation text
@@ -420,6 +425,19 @@ class Session:
         if DEBUG_LOG:  # off unless TUTOR_DEBUG_LOG=1, because this keeps what was said
             with open(DEBUG_LOG, "a") as f:
                 f.write(json.dumps({"at": int(time.time()), "heard": user, "reply": full, "spoken": shown}, ensure_ascii=False) + "\n")
+        await self.plan_questions()
+
+    async def plan_questions(self):
+        """Prepare specific questions after a subject opens, once its first reply is spoken. Uses the discussion's cached slot."""
+        s = self.ctx.subject
+        if not s or s.planned_for == s.index:
+            return
+        msgs = [{"role": "system", "content": self.system_prompt()}] + self.history + [{"role": "user", "content": QUESTION_PROMPT}]
+        body = {"messages": msgs, "max_tokens": 700, "id_slot": 0, "chat_template_kwargs": {"enable_thinking": False}, "response_format": {"type": "json_schema", "json_schema": {"schema": QUESTION_SCHEMA}}, **SAMPLING}
+        r = await self.http.post(LLM, json=body, timeout=120)
+        r.raise_for_status()
+        s.questions = json.loads(r.json()["choices"][0]["message"]["content"])["questions"]
+        s.next_q, s.planned_for = 0, s.index
 
 
 @app.get("/")
