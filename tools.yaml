@@ -1,0 +1,51 @@
+# Tools the tutor can use. A skill lists which of these it may call in its SKILL.md.
+#
+# provider: python   calls an async function(args, ctx) in this repository
+# provider: mcp      calls a tool on an MCP server below; "fixed" adds arguments, "after" post-processes the text
+#
+# The descriptions are what the model reads, so they are short on purpose: they are sent on every turn.
+
+servers:
+  donsetch:
+    command: donsetch
+    args: [mcp]
+
+tools:
+  find_news:
+    provider: python
+    function: tools.subjects:find_news
+    description: Get the latest headlines from a named news outlet, such as Al Jazeera or BBC Arabic.
+    parameters:
+      type: object
+      properties:
+        source: {type: string, description: Name of the news outlet}
+      required: [source]
+
+  web_search:
+    provider: mcp
+    server: donsetch
+    tool: web_search
+    fixed: {max_results: 6, deadline_ms: 20000}
+    after: tools.subjects:after_search
+    description: Search the internet for news or recent information on a topic. Write the query in Arabic.
+    parameters:
+      type: object
+      properties:
+        query: {type: string, description: Search words}
+      required: [query]
+
+  open_item:
+    provider: python
+    function: tools.subjects:open_item
+    description: Open one numbered item from the list just offered, making it the subject to discuss.
+    parameters:
+      type: object
+      properties:
+        number: {type: integer, description: The item's number}
+      required: [number]
+
+  next_section:
+    provider: python
+    function: tools.subjects:next_section
+    description: Move to the next section of the video. Call this whenever the learner asks to continue or go to the next part.
+    parameters: {type: object, properties: {}}

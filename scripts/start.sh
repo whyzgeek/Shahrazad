@@ -40,7 +40,7 @@ wait_up "http://127.0.0.1:$VOXTRAL_PORT/health"
 # Tutor and vowelling: Gemma 4 26B-A4B. Part of its experts run on the CPU so everything fits.
 CUDA_VISIBLE_DEVICES=$GPU_LLM setsid nohup timeout $LIFE "$LLAMA_SERVER" --port "$GEMMA_PORT" --host 127.0.0.1 \
   -m "$M/gemma4-26b/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf" --model-draft "$M/gemma4-26b/MTP/mtp-gemma-4-26B-A4B-it-Q4_0.gguf" \
-  --spec-type draft-mtp --spec-draft-n-max 4 -ngl all -fa on --jinja -c 16384 -ctk q8_0 -ctv q8_0 --n-cpu-moe "$GEMMA_CPU_MOE" --reasoning off --parallel 1 > "$R/gemma.log" 2>&1 &
+  --spec-type draft-mtp --spec-draft-n-max 4 -ngl all -fa on --jinja -c 16384 -ctk q8_0 -ctv q8_0 --n-cpu-moe "$GEMMA_CPU_MOE" --reasoning off --parallel 2 -kvu --no-cache-idle-slots > "$R/gemma.log" 2>&1 &
 echo $! > "$R/gemma.pid"
 wait_up "http://127.0.0.1:$GEMMA_PORT/health"
 
@@ -54,6 +54,6 @@ SCHEME=http; [ -n "$TUTOR_SSL_CERT" ] && SCHEME=https
 if [ "$SCHEME" = http ] && [ "$TUTOR_HOST" != 127.0.0.1 ] && [ "$TUTOR_HOST" != localhost ]; then
   echo "Warning: browsers block the microphone on plain HTTP outside localhost. Run scripts/make_cert.sh and set TUTOR_SSL_CERT and TUTOR_SSL_KEY."
 fi
-start_retry app "$SCHEME://$TUTOR_HOST:$TUTOR_PORT/" timeout $LIFE "$VENV_TUTOR/bin/python" -I app.py
+start_retry app "$SCHEME://$TUTOR_HOST:$TUTOR_PORT/" timeout $LIFE "$VENV_TUTOR/bin/python" app.py
 nvidia-smi --query-gpu=index,memory.free --format=csv,noheader
 echo "Shahrazad is running at $SCHEME://$TUTOR_HOST:$TUTOR_PORT"

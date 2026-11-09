@@ -1,0 +1,10 @@
+# News outlets the tutor can read directly. Add one by giving its name, the words learners use for it, and its RSS feed.
+sources:
+  aljazeera:
+    name: الجزيرة
+    aliases: [الجزيرة, الجزيره, جزيرة, aljazeera, al jazeera, al-jazeera]
+    feed: https://www.aljazeera.net/aljazeerarss/a7c186be-1baa-4bd4-9d80-a84db769f779/73d0e1b4-532f-45ef-b135-bfdff8b8cab9
+  bbc_arabic:
+    name: بي بي سي عربي
+    aliases: [بي بي سي, بى بى سى, bbc]
+    feed: https://feeds.bbci.co.uk/arabic/rss.xml

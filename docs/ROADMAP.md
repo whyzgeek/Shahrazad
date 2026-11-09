@@ -6,22 +6,13 @@ Shahrazad grows in small phases, and each one should work on its own before the 
 
 The tutor holds a push-to-talk conversation in Modern Standard Arabic, corrects mistakes, and speaks and shows fully vowelled replies. Everything runs locally.
 
-## Phase 1: tools
+## Phase 1: subjects (done)
 
-Give the tutor read-only tools it can decide to use during a conversation, starting with web search for topics such as the latest news. Gemma 4 supports tool calling, so the main work is the tool loop in `app.py` and a spoken "one moment" while a search runs.
+The tutor can find a subject from a named news outlet or a web search, or from a pasted YouTube link with Arabic captions, and discuss it over many turns.
 
-Tool results are untrusted text from the internet. They are treated only as material to discuss, sources are shown on screen, and tools are never given write access.
+## Phase 2: access control
 
-## Phase 2: discuss a YouTube video
-
-The learner pastes a link, and the tutor discusses the video: it summarises it in simple Arabic, asks comprehension questions, answers the learner's questions, and argues a point with them.
-
-Planned approach:
-
-1. Fetch the video's Arabic captions when they exist.
-2. When they don't, download the audio and transcribe it with Voxtral.
-3. Fit the transcript into Gemma's context, using sections or a summary for long videos.
-4. Add a discussion mode to the system prompt with a question-and-debate structure.
+Add a login before the tutor is shared more widely.
 
 ## Phase 3: learning features
 

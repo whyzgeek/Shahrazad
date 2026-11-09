@@ -9,7 +9,7 @@ GPU numbers below describe the tested layout of two 12 GB cards. `scripts/config
 | Job | Model | Runtime | Device |
 |---|---|---|---|
 | Hear the learner | Voxtral Mini 4B Realtime Arabic | vLLM, WebSocket | GPU1 |
-| Tutor reply, and adding tashkeel | Gemma 4 26B-A4B QAT + MTP draft head | llama-server | GPU0, with 16 layers of experts on the CPU |
+| Tutor reply, and adding tashkeel | Gemma 4 26B-A4B QAT + MTP draft head | llama-server | GPU0, with 17 layers of experts on the CPU |
 | Generate speech tokens | Arabic-TTS-Spark language model (converted to BF16 GGUF) | llama-server | GPU0 |
 | Turn speech tokens into audio | Spark BiCodec decoder | `spark_service.py` (PyTorch) | GPU0 |
 | Conversation logic | None | `app.py` (FastAPI) | CPU |
@@ -73,7 +73,7 @@ sequenceDiagram
   A-->>B: timing
 ```
 
-The complete reply is generated before vowelling starts, because Gemma runs with one slot and the vowelling step uses the same server.
+The complete reply is generated before vowelling starts. Gemma has two slots, one for the discussion and one for vowelling, so vowelling doesn't push the discussion out of its cache.
 
 ### Text handling between the models
 
@@ -87,9 +87,37 @@ The complete reply is generated before vowelling starts, because Gemma runs with
 
 Spark tends to keep generating silence after the sentence ends. After speech, the token stream is almost entirely tokens 3140, 7645 and 6627. `spark_service.py` stops generation after 25 of these in a row (0.5 s of silence), keeps six for a natural decay, and caps a sentence at 900 tokens (18 s).
 
+### Long turns and long sentences
+
+A Voxtral session holds about 82 s. After 55 s, `app.py` waits for a pause, or forces it at 72 s, then finishes that session and starts another. Audio arriving meanwhile is held and sent afterwards, and the transcripts are joined.
+
+Spark stops at 18 s per sentence, about 30 words, so vowelled text over 20 words is sent in parts, split at commas where possible.
+
 ### How interruption works
 
 Pressing talk stops local playback, and the app cancels the running reply task. A generation counter discards audio that was already in progress. In the end-to-end test, no stale audio arrived after an interruption.
+
+## Subjects, tools and skills
+
+A conversation has a **current subject**: an article or a video. Tools are used only to find one, so ordinary discussion turns have no searching. The subject stays in the system prompt, separate from the chat history, until the learner moves on.
+
+| Part | Where | To add one |
+|---|---|---|
+| Tools | `tools.yaml`, code in `tools/` | Add an entry. A tool is either a Python function or a tool on any MCP server |
+| News outlets | `sources.yaml` | Add its name, the words learners use for it, and its RSS feed |
+| Teaching modes | `skills/<name>/SKILL.md` (Agent Skills format) | Add a folder with instructions and `allowed-tools` |
+
+**Finding a subject**
+
+- *Named outlet:* `find_news` reads the outlet's RSS feed. The code matches the outlet's name itself, including when Gemma calls web search instead.
+- *Topic:* `web_search` goes through the `donsetch` MCP server.
+- *Choosing:* results are a numbered list, and `open_item` takes a number. The model never supplies an address, so it can only open what a search returned.
+- *Video:* a pasted YouTube link is detected by the code. `yt-dlp` fetches human-written Arabic captions, or automatic captions if the video's own language is Arabic. Machine-translated tracks are refused, and a video with no Arabic captions is declined.
+- *Long videos:* captions are split into sections of about 14,000 characters, and `next_section` moves on.
+
+Tool results go into the system prompt instead of tool-role messages, because Gemma sometimes emits only its thinking marker right after a tool message. Results and subjects are marked as untrusted, and all tools are read-only.
+
+Opening a subject costs one slow turn, because Gemma has to read it: about 20 s for a 5,000-token video section on the test machine. The spoken "one moment" plays first, and later turns are cached.
 
 ## Models and settings
 
@@ -102,10 +130,10 @@ Pressing talk stops local playback, and the app cancels the running reply task. 
 
 | Part | Settings |
 |---|---|
-| Voxtral | Greedy (temperature 0, fixed by vLLM). `--max-model-len 1024` (82 s per session), `--max-num-seqs 1`, `--gpu-memory-utilization 0.91`, PIECEWISE CUDA graphs, `VLLM_USE_FLASHINFER_SAMPLER=0`, `ninja` on `PATH` |
+| Voxtral | Greedy (temperature 0, fixed by vLLM). `--max-model-len 1024` (82 s per session; longer turns continue in a new session), `--max-num-seqs 1`, `--gpu-memory-utilization 0.91`, PIECEWISE CUDA graphs, `VLLM_USE_FLASHINFER_SAMPLER=0`, `ninja` on `PATH` |
 | Gemma, tutor reply | Temperature 1.0, top_p 0.95, top_k 64 (Google's values). Thinking forced off with `--reasoning off` and `enable_thinking: false`. Maximum 300 tokens; last 24 messages of history |
 | Gemma, vowelling | Temperature 0, maximum 600 tokens |
-| Gemma server | `-c 16384`, KV cache `q8_0`, `--n-cpu-moe 16`, `--spec-type draft-mtp --spec-draft-n-max 4`, `--parallel 1` |
+| Gemma server | `-c 16384`, KV cache `q8_0`, `--n-cpu-moe 17`, `--spec-type draft-mtp --spec-draft-n-max 4`, `--parallel 2 -kvu --no-cache-idle-slots` |
 | Spark language model | BF16 GGUF, `-c 2048`. Temperature 0.8, top_p 0.95, top_k 50 (vendor card), min_p 0, repeat penalty 1.0 |
 | Spark voice | No-transcript cloning mode; the reference voice is read once at startup. Output is 16 kHz |
 
@@ -125,7 +153,7 @@ The frontend is one static file, `index.html`, with no build step or external li
 
 - **Microphone:** an inline AudioWorklet downsamples to 16 kHz mono and sends 80 ms frames of PCM16 (1280 samples). Echo cancellation, noise suppression and automatic gain are on.
 - **Secure context:** browsers only allow the microphone on HTTPS or `localhost`. The page is reached through a self-signed HTTPS address on the local network, or an SSH tunnel to `localhost:8791`.
-- **Controls:** hold the button or the space bar to talk, with a 60 s limit per turn. A text box allows typing instead, and "New conversation" clears the history.
+- **Controls:** hold the button or the space bar to talk, with a 5-minute limit per turn. A text box allows typing instead, and "New conversation" clears the history.
 - **Display:** each tutor message shows the reply, then the vowelled text the voice received, then the time to first audio.
 - **Playback:** WAV sentences are queued with the Web Audio API so they play back to back.
 
@@ -158,7 +186,7 @@ Measured on an HP Z820 with two RTX 3060 12 GB cards, 125 GB RAM and a Xeon E5-2
 | Reply complete | about 1.6 s after end of speech |
 | Vowelling the first sentence | about 2.1 s |
 | Spark for the first sentence | about 1.2 s |
-| GPU memory free with everything running | GPU0 651 MiB, GPU1 1044 MiB |
+| GPU memory free with everything running | GPU0 about 600 MiB, GPU1 about 1050 MiB |
 
 | Quality check | Result |
 |---|---|
@@ -177,7 +205,7 @@ Measured on an HP Z820 with two RTX 3060 12 GB cards, 125 GB RAM and a Xeon E5-2
 | Spark language model and decoder | 2.1 GB | No |
 | Gemma 4 26B-A4B + draft head | 14.9 GB with everything on the GPU | Yes, 409 MB less per layer moved to the CPU, down to 2.6 GB at 30 layers |
 
-The planner keeps 500 MB free on each GPU in use and allows for a desktop on the GPU driving a monitor. System memory use was measured at about 17 GB at 16 layers, and each extra layer on the CPU adds about 0.4 GB.
+The planner keeps 650 MB free on each GPU in use and allows for a desktop on the GPU driving a monitor. System memory use was measured at about 17 GB at 16 layers, and each extra layer on the CPU adds about 0.4 GB.
 
 Gemma's speed depends on the CPU as layers move there. On the test machine it ran at 46 tokens/s with 10 layers on the CPU, 43 with 14, 34 with 22 and 28 with 30. Only the two-card layout has been run end to end; the others are calculated from these measurements.
 
@@ -199,7 +227,6 @@ The tutor needs both GPUs, so other GPU workloads have to be stopped first.
 ## Current limits
 
 - The tutor is push-to-talk, not full duplex.
-- Web search and other tools are not implemented, although Gemma 4 supports tool calling.
 - English and Persian explanations are text only.
 - Voxtral sometimes corrects a learner's mistake while transcribing, which hides it from the tutor. This has been seen once on synthetic speech and has not been measured on real learners.
 - About 1 word in 50 can still get a wrong ending from Gemma's vowelling, and Spark reads what it is given.

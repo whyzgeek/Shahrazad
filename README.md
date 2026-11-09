@@ -9,6 +9,8 @@ The tutor and its voice are AI models, not a human teacher, so its Arabic can oc
 - **Tashkeel:** Gemma 4 adds full vowel marks before each sentence is spoken
 - **Voice:** Arabic-TTS-Spark
 
+Ask it to discuss the latest news from a named outlet or a topic, or paste a YouTube link with Arabic captions, and it will discuss that subject with you. Searches go to the internet; everything else stays on your machine.
+
 It takes about 5 seconds from when you stop speaking to when you hear the reply, measured on two RTX 3060 12 GB cards. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it works and [docs/ROADMAP.md](docs/ROADMAP.md) for what's next.
 
 This project is early and has only been run on that one machine.
@@ -26,7 +28,7 @@ You don't need two identical cards. `scripts/configure.py` detects your GPUs and
 
 | GPUs | System memory | What to expect |
 |---|---|---|
-| 2 × 12 GB | 24 GB or more | Tested. 16 of Gemma's 30 layers on the CPU |
+| 2 × 12 GB | 24 GB or more | Tested. 17 of Gemma's 30 layers on the CPU |
 | 1 × 24 GB | 24 GB or more | Calculated: fits, with 13 layers on the CPU |
 | 1 × 20 GB | 32 GB or more | Calculated: fits, with 23 layers on the CPU |
 | 16 GB + 8 GB | 32 GB or more | Calculated: fits, with the monitor on the smaller card |
