@@ -8,7 +8,7 @@ from pathlib import Path
 
 import httpx, uvicorn, websockets
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from tools import learner, youtube
 from tools.registry import Context, Registry
@@ -32,7 +32,7 @@ MAX_TOOL_ROUNDS = 2
 ROLL_AFTER_S = 55      # start looking for a pause to begin a new Voxtral session (a session holds about 82 s)
 ROLL_FORCE_S = 72      # begin one regardless, before the session runs out
 MAX_VOICE_WORDS = 20   # Spark stops at 18 s, about 30 words, so longer sentences are sent in parts
-DEBUG_LOG = ROOT / "data/debug_transcripts.jsonl" if os.environ.get("TUTOR_DEBUG_LOG", "").strip() in ("1", "true", "yes") else None
+DEBUG_LOG = learner.DB_PATH.with_name("debug_transcripts.jsonl") if os.environ.get("TUTOR_DEBUG_LOG", "").strip() in ("1", "true", "yes") else None
 REGISTRY = Registry(ROOT / "tools.yaml")
 LEARNER = learner.Learner()
 SKILLS = load_skills()
@@ -392,10 +392,16 @@ class Session:
             announced = False
             for round_no in range(0 if video and problem else MAX_TOOL_ROUNDS + 1):
                 msgs = [{"role": "system", "content": self.system_prompt()}] + self.history
+                notes = []
                 s = self.ctx.subject
                 if s and s.next_q < len(s.questions):
+                    notes.append("A question you could ask next if it fits the conversation: " + s.questions[s.next_q])
+                seen = LEARNER.seen_rules()
+                if seen:
+                    notes.append("The learner has already met these rules: " + " ".join(seen) + " If their last sentence breaks one of them, don't say the correct form yet. Instead of «نقول», give a short hint in Arabic that points at the word, and stop there so they can try again, without asking any other question. If they were already hinted about this and got it wrong again, give the correct form. Correct other kinds of error as usual. When it fits, ask something whose answer would make them use one of these rules.")
+                if notes:
                     # At the very end of the prompt, so everything before it stays in Gemma's cache.
-                    msgs[-1] = {**msgs[-1], "content": msgs[-1]["content"] + "\n\n[Private note to the tutor, not from the learner, never correct or mention it. A question you could ask next if it fits the conversation: " + s.questions[s.next_q] + "]"}
+                    msgs[-1] = {**msgs[-1], "content": msgs[-1]["content"] + "\n\n[Private note to the tutor, not from the learner. Never correct it or mention it. " + " ".join(notes) + "]"}
                 text, calls = await stream_turn(msgs, self.http, self.tool_schemas() if round_no < MAX_TOOL_ROUNDS else None, on_text)
                 if not calls:
                     break
@@ -449,17 +455,28 @@ class Session:
         s = self.ctx.subject
         if not s or s.planned_for == s.index:
             return
-        msgs = [{"role": "system", "content": self.system_prompt()}] + self.history + [{"role": "user", "content": QUESTION_PROMPT}]
+        weak = LEARNER.weak_rules()
+        weak_note = f" The learner has been making mistakes with: {', '.join(weak)}. Where it fits naturally, write questions whose answer would make them use these structures." if weak else ""
+        msgs = [{"role": "system", "content": self.system_prompt()}] + self.history + [{"role": "user", "content": QUESTION_PROMPT + weak_note}]
         body = {"messages": msgs, "max_tokens": 700, "id_slot": 0, "chat_template_kwargs": {"enable_thinking": False}, "response_format": {"type": "json_schema", "json_schema": {"schema": QUESTION_SCHEMA}}, **SAMPLING}
         r = await self.http.post(LLM, json=body, timeout=120)
         r.raise_for_status()
         s.questions = json.loads(r.json()["choices"][0]["message"]["content"])["questions"]
         s.next_q, s.planned_for = 0, s.index
+        if DEBUG_LOG:
+            with open(DEBUG_LOG, "a") as f:
+                f.write(json.dumps({"at": int(time.time()), "questions": s.questions, "weak": weak}, ensure_ascii=False) + "\n")
 
 
 @app.get("/")
 async def index():
     return HTMLResponse((ROOT / "index.html").read_text())
+
+
+@app.get("/lesson/{concept}")
+async def lesson(concept: str):
+    card = learner.CARDS.get(concept)
+    return JSONResponse(card) if card else JSONResponse({"error": "unknown"}, status_code=404)
 
 
 @app.websocket("/ws")

@@ -1,0 +1,236 @@
+# Grammar cards and lessons. Written and reviewed by hand, because a model can state a rule wrongly.
+# Each concept has a one-line reminder, shown on its card, and a lesson that opens only when the learner asks.
+
+adjective_gender:
+  title: Adjective gender
+  reminder: An adjective takes the gender of its noun.
+  wrong: سلطة كبير
+  right: سلطة كبيرة
+  rule: An adjective follows its noun and matches it in gender. Feminine adjectives usually end in ة.
+  examples:
+    - ولد طويل
+    - بنت طويلة
+    - شاي ساخن
+    - قهوة ساخنة
+  trap: Some feminine nouns have no ة, such as شمس and أرض and يد, so they still take a feminine adjective, as in شمس حارة.
+
+adjective_definiteness:
+  title: Definite noun and adjective
+  reminder: If the noun has ال, its adjective needs ال too.
+  wrong: عن سيناريوهات المتعلقة
+  right: عن السيناريوهات المتعلقة
+  rule: A noun and its adjective are either both definite or both indefinite.
+  examples:
+    - بيت كبير (a big house)
+    - البيت الكبير (the big house)
+    - البيت كبير (the house is big)
+  trap: Dropping ال from the adjective changes the meaning. البيت الكبير is a phrase, while البيت كبير is a complete sentence.
+
+adjective_number:
+  title: Adjective number
+  reminder: With people or pairs, the adjective matches the noun's number.
+  wrong: كتابين جديدة
+  right: كتابين جديدين
+  rule: An adjective describing two of something is dual. An adjective describing a group of people is plural.
+  examples:
+    - طالبان مجتهدان
+    - قرأت كتابين جديدين
+    - طلاب مجتهدون
+  trap: Plurals of things and animals follow a different rule. See "Plural of non-human things".
+
+nonhuman_plural:
+  title: Plural of non-human things
+  reminder: Plurals of things and animals take feminine singular agreement.
+  wrong: السيارات كثيرون
+  right: السيارات كثيرة
+  rule: When a plural refers to things, animals or ideas, its adjectives, verbs and pronouns are feminine singular.
+  examples:
+    - السيارات كثيرة
+    - الكتب جديدة
+    - هذه الأفكار مهمة
+    - الكتب التي قرأتها
+  trap: This applies to plurals only. Plurals of people agree normally, as in المهندسون ماهرون.
+
+verb_person:
+  title: Verb and who does the action
+  reminder: The verb's form must show who does the action.
+  wrong: أنا يذهب
+  right: أنا أذهب
+  rule: Each person has its own verb form. The pronoun is usually left out, because the verb already shows it.
+  examples:
+    - "Past: ذهبتُ، ذهبتَ، ذهبتِ، ذهبَ، ذهبتْ، ذهبنا، ذهبوا"
+    - "Present: أذهب، تذهب، يذهب، نذهب، يذهبون"
+  trap: ذهبتُ (I went), ذهبتَ (you went), and ذهبتْ (she went) differ only in the final vowel.
+
+verb_tense:
+  title: Verb tense
+  reminder: Use the past for finished actions, and the present for now or habits.
+  wrong: أمس أذهب إلى السوق
+  right: أمس ذهبتُ إلى السوق
+  rule: The past form is for completed actions. The present form is for actions happening now or regularly. سـ or سوف before the present form shows the future.
+  examples:
+    - أمس قرأتُ كتابًا
+    - أقرأ كل يوم
+    - سأقرأ غدًا
+    - كنتُ أقرأ كل يوم (I used to read every day)
+  trap: A word like أمس or غدًا doesn't change the verb for you. The verb's own form still has to match the time.
+
+verb_subject_agreement:
+  title: Verb before its subject
+  reminder: A verb before its subject stays singular, and matches its gender.
+  wrong: ذهبوا الطلاب
+  right: ذهب الطلاب
+  rule: When a verb comes before its subject, it is singular and agrees in gender. When the subject comes first, the verb agrees fully.
+  examples:
+    - ذهب الطلاب
+    - ذهبت البنات
+    - الطلاب ذهبوا
+  trap: With the subject first, a plural of people needs a plural verb, as in الطلاب ذهبوا.
+
+preposition:
+  title: Verb and preposition pairs
+  reminder: Many verbs go with one fixed preposition.
+  wrong: أفكر عن السفر
+  right: أفكر في السفر
+  rule: Arabic verbs often need a particular preposition, and it may differ from the one you'd expect from another language. Learn the verb and preposition together.
+  examples:
+    - فكّر في
+    - بحث عن
+    - اعتمد على
+    - ذهب إلى
+    - استمع إلى
+  trap: The same verb can change meaning with a different preposition, as in رغب في (to want) and رغب عن (to avoid).
+
+idafa:
+  title: Possessive phrase (إضافة)
+  reminder: In a possessive phrase, the first noun takes no ال.
+  wrong: الكتاب أستاذي
+  right: كتاب أستاذي
+  rule: Two nouns placed together mean "X of Y". The first noun never takes ال or tanween, and the second one decides whether the phrase is definite.
+  examples:
+    - كتاب الأستاذ (the teacher's book)
+    - باب بيت (a door of a house)
+    - كتاب أستاذي (my teacher's book)
+  trap: An adjective comes after the whole phrase, as in كتاب الأستاذ الجديد. Dual and plural nouns lose their ن as the first noun, as in مهندسو الشركة.
+
+numbers_gender:
+  title: Numbers 3 to 10
+  reminder: Numbers 3 to 10 take the opposite gender of the counted noun.
+  wrong: ثلاث إخوة
+  right: ثلاثة إخوة
+  rule: For 3 to 10, the number takes the opposite gender of the noun's singular form. A masculine singular noun takes a number with ة, and a feminine one takes a number without it.
+  examples:
+    - ثلاثة أولاد (ولد is masculine)
+    - ثلاث بنات (بنت is feminine)
+    - خمسة كتب
+    - خمس سيارات
+  trap: Look at the singular, not the plural. كتب looks feminine but comes from كتاب, which is masculine.
+
+counted_noun:
+  title: The noun after a number
+  reminder: The number decides the form of the noun after it.
+  wrong: خمس أخت
+  right: خمس أخوات
+  rule: After 3 to 10, use a plural noun in the genitive. After 11 to 99, use a singular noun in the accusative. After 100 and 1000, use a singular noun in the genitive.
+  examples:
+    - خمسة كتب
+    - عشرون طالبًا
+    - مئة كتاب
+  trap: 1 and 2 aren't used this way. Say كتاب or كتابان on their own.
+
+dual:
+  title: Dual forms
+  reminder: For two of something, use the dual ending ان or ين.
+  wrong: اثنان كتاب
+  right: كتابان
+  rule: Add ـان when the noun is the subject, and ـين after verbs and prepositions. No number word is needed.
+  examples:
+    - جاء طالبان
+    - رأيت طالبين
+    - مررت بطالبين
+  trap: The ن disappears when the dual is the first noun of a possessive phrase, as in كتابا الطالب.
+
+plural_form:
+  title: Plural forms
+  reminder: Check which plural pattern this noun takes.
+  wrong: كتابات جديدة
+  right: كتب جديدة
+  rule: Men's groups often take ـون or ـين, feminine nouns often take ـات, and many nouns have an irregular plural that has to be learned with the word.
+  examples:
+    - مهندس، مهندسون
+    - سيارة، سيارات
+    - كتاب، كتب
+    - ولد، أولاد
+  trap: When you learn a noun, learn its plural at the same time, because the pattern often can't be predicted.
+
+case_ending:
+  title: Case endings (إعراب)
+  reminder: The ending shows the word's role in the sentence.
+  wrong: أعمل مهندس
+  right: أعمل مهندسًا
+  rule: The subject and most predicates end in ـُ, objects and adverbial nouns in ـَ, and words after prepositions or in second position of a possessive phrase in ـِ. Indefinite nouns double the vowel.
+  examples:
+    - الطالبُ مجتهدٌ
+    - قرأتُ الكتابَ
+    - في البيتِ
+    - أعمل مهندسًا
+  trap: Some endings are visible even without vowels, like the ـًا on مهندسًا and the ـون or ـين on plurals.
+
+inna_kana:
+  title: كان and إنّ
+  reminder: كان makes its predicate accusative, while إنّ makes its subject accusative.
+  wrong: كان الجو جميل
+  right: كان الجو جميلًا
+  rule: With كان and its sisters, the subject stays nominative and the predicate becomes accusative. With إنّ and its sisters, the subject becomes accusative and the predicate stays nominative.
+  examples:
+    - كان الجوُّ جميلًا
+    - أصبح الطالبُ مهندسًا
+    - إنّ المعلمَ كريمٌ
+  trap: ليس works like كان, as in ليس الجوُّ باردًا.
+
+negation:
+  title: Negation
+  reminder: The negative word depends on the time you mean.
+  wrong: لم يذهب غدا
+  right: لن يذهب غدا
+  rule: Use ما with the past, لا with the present, لم with the present form for past meaning, and لن with the present form for the future. ليس negates sentences without a verb.
+  examples:
+    - ما ذهبتُ
+    - لا أذهب
+    - لم أذهبْ
+    - لن أذهبَ
+    - ليس الجوُّ باردًا
+  trap: لم and لن both change the verb's ending, and لم يذهبون isn't correct. It's لم يذهبوا.
+
+pronoun:
+  title: Pronouns
+  reminder: The pronoun must match the noun it stands for.
+  wrong: البنت الذي
+  right: البنت التي
+  rule: Pronouns, attached endings and relative words like الذي and التي match the gender and number of their noun.
+  examples:
+    - الرجل الذي رأيته
+    - البنت التي رأيتها
+    - الكتب التي قرأتها
+  trap: Plurals of things use feminine singular pronouns, as in الكتب التي قرأتها.
+
+word_order:
+  title: Word order
+  reminder: Check the order of the words here.
+  wrong: كبير بيت
+  right: بيت كبير
+  rule: Adjectives come after their nouns, and the possessive pronoun is attached to the end of the noun.
+  examples:
+    - بيت كبير
+    - كتابي
+  trap: Avoid placing the adjective before the noun, even if your other languages do that.
+
+word_choice:
+  title: Word choice
+  reminder: A different word fits better here.
+  rule: This word doesn't fit the meaning or the usual way of saying this in Modern Standard Arabic.
+
+other:
+  title: Grammar
+  reminder: This form needs correcting.
+  rule: This form isn't correct in Modern Standard Arabic.

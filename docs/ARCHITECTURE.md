@@ -117,7 +117,7 @@ A conversation has a **current subject**: an article or a video. Tools are used 
 
 Tool results go into the system prompt instead of tool-role messages, because Gemma sometimes emits only its thinking marker right after a tool message. Results and subjects are marked as untrusted, and all tools are read-only.
 
-After a subject's first reply, Gemma prepares six specific questions from it: facts, reasons, a comparison and a position to defend. Each turn offers the next one, which it can adapt to what the learner just said.
+After a subject's first reply, Gemma prepares six questions from it: the main idea, why and what it means, larger ideas to argue about, and the learner's own views. They avoid small details, because the goal is practising Arabic, and where it fits they steer toward the structures this learner gets wrong. Each turn offers the next one, which it can adapt to what the learner just said.
 
 Opening a subject costs one slow turn, because Gemma has to read it: about 20 s for a 5,000-token video section on the test machine. The spoken "one moment" plays first, and later turns are cached.
 
@@ -125,7 +125,9 @@ Opening a subject costs one slow turn, because Gemma has to read it: about 20 s 
 
 Sessions, what was said, and errors by grammar concept are stored locally in `data/learner.db`. After each reply is spoken, Gemma checks what the learner said, so this never delays the conversation.
 
-An error is kept only if its wrong words really appear in what was said. Speech recognition can mishear words but rarely invents a grammar pattern, so word-choice errors in speech are shown but not tracked. Words Gemma judges misheard are dropped, and the learner can remove any card with "That's not what I said".
+An error is kept only if its wrong words really appear in what was said. Cards are only for the Arabic language: facts, names, numbers and foreign words never get one. Speech recognition can mishear words but rarely invents a grammar pattern, so word-choice errors in speech don't get cards. Words Gemma judges misheard are dropped, and the learner can remove any card with "That's not what I said".
+
+Each error is matched to a grammar concept in `cards.yaml`, which holds a hand-written one-line reminder and a lesson that opens only when the learner taps "Explain this". For rules the learner has already met, the tutor gives a hint and lets them try again, and gives the correct form if they get it wrong again.
 
 ## Models and settings
 
