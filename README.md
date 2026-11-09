@@ -1,162 +1,62 @@
 # Shahrazad (شهرزاد)
 
-MSA (Modern Standard Arabic) voice tutor: full-duplex conversation, silent error capture, and on-demand practice drills.
+A spoken Modern Standard Arabic tutor that runs entirely on your own computer. You talk to it, it corrects your mistakes gently, and it replies aloud with fully vowelled Arabic so you can hear and read the correct case endings.
 
-**Stage 1 (usable product):** OpenAI Realtime voice chat on a topic → notes appear in the sidebar → learner taps **Practice** → short grammar drills → wrap-up.
+- **Hearing:** Voxtral Mini 4B Realtime Arabic
+- **Teaching:** Gemma 4 26B-A4B
+- **Tashkeel:** Gemma 4 adds full vowel marks before each sentence is spoken
+- **Voice:** Arabic-TTS-Spark
 
-More work remains (interval review, Docker, CI, YouTube comprehension). See [TODO.md](TODO.md) for the roadmap.
+It takes about 5 seconds from when you stop speaking to when you hear the reply, measured on two RTX 3060 12 GB cards. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it works and [docs/ROADMAP.md](docs/ROADMAP.md) for what's next.
 
----
+This project is early and has only been run on that one machine.
 
-## What you get
+## Requirements
 
-| Piece | Role |
-|-------|------|
-| `shahrazad-agent/` | LiveKit voice agent + FastAPI (sessions, tokens, errors, TTS) |
-| `shahrazad-web/` | Next.js UI (topic picker, live session, notes, Practice) |
-| `spikes/` | Historical Phase 0 verification (not needed to run the product) |
+- Two NVIDIA GPUs with 12 GB each, or an equivalent setup, and about 40 GB of disk
+- A recent llama.cpp build with `draft-mtp` support
+- Python 3.12, and the `hf` CLI for downloads
+- A short recording of an Arabic voice you have the right to use
 
-**Session flow**
-
-1. **Conversation** — Shahrazad follows a locked topic agenda (Realtime speech-to-speech).
-2. **Review notes** — after enough turns the lesson pauses; notes list on the right.
-3. **Practice** — choose 1–5 sentences, tap Practice; transcript shows a separate Practice section.
-4. **Wrap-up** — spoken summary and session-complete card.
-
----
-
-## Prerequisites
-
-| Tool | Version | Notes |
-|------|---------|--------|
-| Python | **3.11+** | Agent + API (`uv` recommended) |
-| Node.js | **18.18+** | Web UI (Next.js 15) |
-| OpenAI API key | — | Realtime + TTS + LLM judge |
-| LiveKit Cloud project | — | URL + API key + secret |
-
-Optional: [uv](https://github.com/astral-sh/uv) for Python installs; PortAudio (`libportaudio2`) only if you use `shahrazad-agent console`.
-
----
-
-## Install
-
-### 1. Clone and env
+## Setup
 
 ```bash
-git clone <your-remote-url> shahrazad
-cd shahrazad
+cp .env.example .env     # then set SHAHRAZAD_REF_AUDIO and the other paths
 
-cp .env.example .env
-# Fill at least:
-#   OPENAI_API_KEY=
-#   LIVEKIT_URL=
-#   LIVEKIT_API_KEY=
-#   LIVEKIT_API_SECRET=
+python3.12 -m venv .venv-tutor   && .venv-tutor/bin/pip install -r requirements/tutor.txt
+python3.12 -m venv .venv-voxtral && .venv-voxtral/bin/pip install -r requirements/voxtral.txt
+python3.12 -m venv .venv-spark
+.venv-spark/bin/pip install torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
+.venv-spark/bin/pip install -r requirements/spark.txt
 
-cp shahrazad-web/.env.local.example shahrazad-web/.env.local
-# NEXT_PUBLIC_API_URL=http://localhost:8000
+scripts/download_models.sh
+scripts/convert_spark.sh
 ```
 
-Never commit `.env` or `.env.local`.
-
-### 2. Agent + API
+## Run
 
 ```bash
-cd shahrazad-agent
-python3.11 -m venv .venv          # or: uv venv
-source .venv/bin/activate
-pip install -e .                  # or: uv pip install -e .
+scripts/start.sh
 ```
 
-### 3. Web
+Open `http://localhost:8791`, allow the microphone, then hold the button or the space bar while you speak. `scripts/stop.sh` shuts everything down, and every process also stops by itself after 8 hours.
+
+Browsers only allow the microphone on `localhost` or HTTPS, so from another computer use an SSH tunnel:
 
 ```bash
-cd shahrazad-web
-node -v                           # must be 18+
-npm install
+ssh -L 8791:127.0.0.1:8791 <user>@<server>
 ```
 
----
+The server has no login, so don't expose it to a network without adding HTTPS and authentication.
 
-## Run (three terminals)
+## Models and licenses
 
-```bash
-# Terminal 1 — API (port 8000)
-cd shahrazad-agent && source .venv/bin/activate && shahrazad-api
+The models are downloaded from their original repositories, and each has its own license.
 
-# Terminal 2 — LiveKit agent worker
-cd shahrazad-agent && source .venv/bin/activate && shahrazad-agent dev
+| Model | License |
+|---|---|
+| [Voxtral Mini 4B Realtime Arabic](https://huggingface.co/mistralai/Voxtral-Mini-4B-Realtime-Arabic) | Apache-2.0 |
+| [Gemma 4 26B-A4B QAT GGUF](https://huggingface.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF) | Apache-2.0 |
+| [Arabic-TTS-Spark](https://huggingface.co/IbrahimSalah/Arabic-TTS-Spark) | Non-commercial |
 
-# Terminal 3 — Web (port 3000)
-cd shahrazad-web && npm run dev
-# If system Node is too old: npm run dev:local
-```
-
-Open **http://localhost:3000** → pick a topic → allow the microphone → talk.
-
-Quick health check:
-
-```bash
-curl http://localhost:8000/health
-curl http://localhost:8000/topics
-```
-
----
-
-## Docs map
-
-| Doc | Audience |
-|-----|----------|
-| [README.md](README.md) (this file) | Install, run, overview |
-| [shahrazad-agent/README.md](shahrazad-agent/README.md) | Agent architecture, env vars, API, how to extend |
-| [shahrazad-web/README.md](shahrazad-web/README.md) | Web UX, data topics, how to extend |
-| [TODO.md](TODO.md) | Roadmap after stage 1 |
-| [PLAN.md](PLAN.md) | Historical product/architecture notes (pre–Realtime) |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Dev conventions and where to change things |
-| [spikes/README.md](spikes/README.md) | Phase 0 spikes (historical) |
-
----
-
-## Architecture (stage 1)
-
-```
-Browser (Next.js)
-    │  LiveKit room (audio) + data messages
-    ▼
-LiveKit Cloud
-    │
-    ▼
-shahrazad-agent worker          shahrazad-api (FastAPI)
-  OpenAI Realtime (chat)          /token, /sessions, /topics
-  LLM judge (fan-out)             /errors, /tts, /health
-  Practice drills (TTS say)       SQLite: sessions, turns, errors
-```
-
-Speech is **OpenAI-only** (no Azure STT/TTS in the live path). Drills use `session.say()` + OpenAI TTS at a slightly higher speed than conversation.
-
----
-
-## Develop further
-
-Start with [CONTRIBUTING.md](CONTRIBUTING.md). Common entry points:
-
-| Goal | Where |
-|------|--------|
-| Add a conversation topic | `shahrazad-agent/.../context/topics.json` |
-| Change tutor behavior | `agent/prompts.py`, `agent/tutor.py` |
-| Tune error detection | `detectors/judge.py` |
-| Change drill loop / scoring | `drills/controller.py`, `drills/scoring.py`, `drills/grammar.py` |
-| Session stages | `agent/flow.py` |
-| Web session UI | `shahrazad-web/src/components/LiveSessionRoom.tsx` |
-| Copy / i18n | `shahrazad-web/messages/en.json`, `ar.json` |
-
-Suggested next product work is listed in [TODO.md](TODO.md) (interval review, Docker, tests, end-of-session review UI).
-
----
-
-## Status
-
-- [x] Stage 1 — Realtime conversation, notes, Practice drills, web UI
-- [ ] Stage 2 — Interval review, richer review UI, tests/CI
-- [ ] Stage 3 — Docker / deploy polish
-- [ ] Later — YouTube comprehension (original Phase 7 idea)
+Because of Spark's license, the tutor as a whole is for personal, educational and research use.

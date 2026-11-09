@@ -1,0 +1,3 @@
+vllm==0.33.0
+mistral-common[audio]==1.13.1
+ninja==1.13.2

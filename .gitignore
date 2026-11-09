@@ -1,41 +1,19 @@
-# Secrets
+# Secrets and local settings
 .env
-.env.local
-**/.env.local
 
 # Python
-*.pyc
 __pycache__/
-.venv/
-venv/
-*.egg-info/
-dist/
-build/
+*.pyc
+.venv*/
 
-# Node / Next.js
-node_modules/
-.next/
-out/
-*.tsbuildinfo
+# Models and voices are downloaded or supplied locally, never committed
+models/
+*.gguf
+*.safetensors
+*.wav
+*.mp3
+*.flac
 
-# Runtime data (SQLite, learner audio, TTS cache)
-/data/
-shahrazad-agent/data/**
-!shahrazad-agent/data/.gitkeep
-*.db
-*.db-wal
-*.db-shm
-
-# Spikes
-spikes/.venv/
-spikes/results/*.json
-spikes/results/*.log
-!spikes/results/.gitkeep
-spikes/fixtures/audio/*.wav
-
-# OS / editors
-.DS_Store
-.idea/
-.vscode/
-*.swp
-*~
+# Runtime
+run/
+data/

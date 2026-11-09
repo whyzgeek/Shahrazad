@@ -1,0 +1,61 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Arabic Tutor</title>
+<style>
+:root{--bg:#f7f5f0;--fg:#1f1f1c;--mut:#6b6960;--line:#ddd8cc;--card:#fff;--acc:#0f6b5c;--acc2:#b3401f;--me:#e8f1ee}
+@media (prefers-color-scheme:dark){:root{--bg:#191a18;--fg:#ecebe6;--mut:#a3a197;--line:#35362f;--card:#232420;--acc:#2f8f7d;--acc2:#c0603f;--me:#22332e}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif;display:flex;flex-direction:column;height:100dvh}
+header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}
+h1{font-size:16px;margin:0}button{font:inherit;cursor:pointer}#reset{background:none;border:1px solid var(--line);color:var(--mut);border-radius:6px;padding:4px 10px}
+#log{flex:1;overflow-y:auto;padding:16px;max-width:760px;width:100%;margin:auto}
+.m{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin:10px 0}.me{background:var(--me)}
+.ar{font-family:'Noto Naskh Arabic',Amiri,Tahoma,serif;font-size:1.45em;line-height:1.9}.t{color:var(--acc);font-size:1.3em;margin-top:6px;border-top:1px dashed var(--line);padding-top:6px}
+.who{font-size:12px;color:var(--mut)}.time{font-size:12px;color:var(--mut);margin-top:4px}
+footer{padding:12px 16px 18px;border-top:1px solid var(--line);max-width:760px;width:100%;margin:auto}
+#talk{width:100%;padding:18px;font-size:18px;border:0;border-radius:10px;background:var(--acc);color:#fff;touch-action:none;user-select:none}#talk.on{background:var(--acc2)}#talk:disabled{opacity:.5}
+form{display:flex;gap:8px;margin-top:10px}#txt{flex:1;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);min-width:0}form button{padding:8px 14px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg)}
+#st{font-size:13px;color:var(--mut);margin-top:6px;min-height:1.2em}
+</style>
+<header><h1>Arabic speaking tutor</h1><button id="reset">New conversation</button></header>
+<div id="log"></div>
+<footer><button id="talk" disabled>Connecting…</button>
+<form id="f"><input id="txt" dir="auto" placeholder="Or type here" autocomplete="off"><button>Send</button></form><div id="st"></div></footer>
+<script>
+const $=i=>document.getElementById(i),log=$('log'),talk=$('talk'),st=$('st');
+const IDLE='Hold to talk (or hold the space bar)';
+let ws,me,bot,talking=false,mic,node,ctx,play,nextAt=0,sources=[],limit;
+function bubble(cls,who){const d=document.createElement('div');d.className='m '+cls;
+ const w=document.createElement('div');w.className='who';w.textContent=who;
+ const b=document.createElement('div');b.className='ar';b.dir='auto';d.append(w,b);log.append(d);log.scrollTop=log.scrollHeight;return d}
+const setBody=(d,t)=>{d.querySelector('.ar').textContent=t;log.scrollTop=log.scrollHeight};
+function stopAudio(){sources.forEach(s=>{try{s.stop()}catch(e){}});sources=[];nextAt=0}
+async function queue(buf){play=play||new AudioContext();if(play.state==='suspended')await play.resume();
+ const a=await play.decodeAudioData(buf),s=play.createBufferSource();s.buffer=a;s.connect(play.destination);
+ const at=Math.max(play.currentTime+.03,nextAt);s.start(at);nextAt=at+a.duration;sources.push(s);s.onended=()=>{sources=sources.filter(x=>x!==s)}}
+function connect(){ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');ws.binaryType='arraybuffer';
+ ws.onopen=()=>{talk.disabled=false;talk.textContent=IDLE;st.textContent=''};
+ ws.onclose=()=>{talk.disabled=true;talk.textContent='Reconnecting…';setTimeout(connect,1500)};
+ ws.onmessage=e=>{if(typeof e.data!=='string'){queue(e.data);return}const m=JSON.parse(e.data);
+  if(m.type==='partial'){if(me)setBody(me,m.text)}
+  else if(m.type==='final'){if(me)setBody(me,m.text||'…');st.textContent=m.text?'Thinking…':''}
+  else if(m.type==='assistant'){if(!bot)bot=bubble('','Tutor');setBody(bot,m.text);st.textContent=''}
+  else if(m.type==='text_only'){st.textContent='Shown as text only: the Arabic voice can’t read that language.'}
+  else if(m.type==='tashkeel'&&bot){let t=bot.querySelector('.t');if(!t){t=document.createElement('div');t.className='ar t';t.dir='auto';bot.append(t)}t.textContent=m.text;log.scrollTop=log.scrollHeight}
+  else if(m.type==='timing'&&bot){const t=document.createElement('div');t.className='time';t.textContent='First audio '+(m.end_of_speech_to_first_audio_s??'–')+' s after you stopped';bot.append(t)}
+  else if(m.type==='error'){st.textContent=m.text}}}
+const WORK=`class P extends AudioWorkletProcessor{constructor(){super();this.r=sampleRate/16000;this.a=0;this.n=0;this.p=0;this.b=new Int16Array(1280);this.i=0}
+process(inp){const c=inp[0][0];if(!c)return true;for(let k=0;k<c.length;k++){this.a+=c[k];this.n++;this.p++;if(this.p>=this.r){this.p-=this.r;const v=Math.max(-1,Math.min(1,this.a/this.n));this.a=0;this.n=0;this.b[this.i++]=v*32767;if(this.i===1280){this.port.postMessage(this.b.buffer.slice(0));this.i=0}}}return true}}registerProcessor('p',P)`;
+async function initMic(){if(mic)return;mic=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+ ctx=new AudioContext();await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORK],{type:'text/javascript'})));
+ node=new AudioWorkletNode(ctx,'p');ctx.createMediaStreamSource(mic).connect(node);node.port.onmessage=e=>{if(talking&&ws.readyState===1)ws.send(e.data)}}
+async function down(){if(talking||talk.disabled)return;talking=true;
+ try{await initMic();await ctx.resume()}catch(e){talking=false;st.textContent='Microphone unavailable. Open this page at http://localhost:8791 through the SSH tunnel and allow the mic.';return}
+ if(!talking)return; // released during the permission prompt
+ stopAudio();bot=null;me=bubble('me','You');talk.classList.add('on');talk.textContent='Listening… release when done';st.textContent='';ws.send(JSON.stringify({type:'start'}));limit=setTimeout(up,60000)}
+function up(){if(!talking)return;talking=false;clearTimeout(limit);talk.classList.remove('on');talk.textContent=IDLE;setTimeout(()=>ws.send(JSON.stringify({type:'stop'})),120)}
+talk.onpointerdown=e=>{e.preventDefault();talk.setPointerCapture(e.pointerId);down()};talk.onpointerup=up;talk.onpointercancel=up;
+addEventListener('keydown',e=>{if(e.code==='Space'&&!e.repeat&&document.activeElement!==$('txt')){e.preventDefault();down()}});
+addEventListener('keyup',e=>{if(e.code==='Space'&&document.activeElement!==$('txt')){e.preventDefault();up()}});
+$('f').onsubmit=e=>{e.preventDefault();const v=$('txt').value.trim();if(!v)return;$('txt').value='';stopAudio();bot=null;play=play||new AudioContext();play.resume();setBody(bubble('me','You'),v);ws.send(JSON.stringify({type:'text',text:v}))};
+$('reset').onclick=()=>{stopAudio();bot=null;log.textContent='';ws.send(JSON.stringify({type:'reset'}))};
+connect();
+</script></html>

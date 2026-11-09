@@ -1,0 +1,20 @@
+# Install torch and torchaudio from https://download.pytorch.org/whl/cu128 first.
+torch==2.8.0
+torchaudio==2.8.0
+transformers==4.51.3
+numpy==2.3.5
+accelerate
+safetensors
+soundfile
+soxr
+einops
+einx
+packaging
+fastapi==0.162.2
+uvicorn==0.54.0
+httpx==0.28.1
+# Only for scripts/convert_spark.sh
+sentencepiece
+pyyaml
+tqdm
+protobuf

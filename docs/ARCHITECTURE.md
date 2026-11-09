@@ -1,0 +1,194 @@
+# Shahrazad architecture
+
+Shahrazad holds a spoken conversation in Modern Standard Arabic (MSA), corrects the learner's mistakes, and shows and speaks fully vowelled Arabic. All models run locally on one machine.
+
+## At a glance
+
+| Job | Model | Runtime | Device |
+|---|---|---|---|
+| Hear the learner | Voxtral Mini 4B Realtime Arabic | vLLM, WebSocket | GPU1 |
+| Tutor reply, and adding tashkeel | Gemma 4 26B-A4B QAT + MTP draft head | llama-server | GPU0, with 16 layers of experts on the CPU |
+| Generate speech tokens | Arabic-TTS-Spark language model (converted to BF16 GGUF) | llama-server | GPU0 |
+| Turn speech tokens into audio | Spark BiCodec decoder | `spark_service.py` (PyTorch) | GPU0 |
+| Conversation logic | None | `app.py` (FastAPI) | CPU |
+| User interface | None | `index.html` in the browser | Learner's device |
+
+The interaction is push-to-talk with interruption: the learner holds a button or the space bar, and pressing it again while the tutor is speaking stops the reply. It is not full duplex, because the tutor does not listen while it speaks.
+
+## How the parts connect
+
+```mermaid
+flowchart LR
+  subgraph Browser
+    UI[index.html<br/>mic capture, captions,<br/>audio queue]
+  end
+  subgraph Server["Server (all ports on 127.0.0.1)"]
+    APP[app.py :8791<br/>session logic]
+    VOX[Voxtral on vLLM :18098<br/>GPU1]
+    GEMMA[Gemma 4 on llama-server :18099<br/>GPU0 + CPU]
+    SPARK[spark_service.py :18096<br/>BiCodec decoder, GPU0]
+    SPLM[Spark LM on llama-server :18097<br/>GPU0]
+  end
+  UI <-->|"WebSocket /ws<br/>PCM up, text and WAV down"| APP
+  APP <-->|"WebSocket /v1/realtime"| VOX
+  APP -->|"HTTP chat completions (streamed)"| GEMMA
+  APP -->|"HTTP POST /synth"| SPARK
+  SPARK -->|"HTTP /completion (token ids, streamed)"| SPLM
+```
+
+Each model runs as its own process because their dependencies conflict. Voxtral needs vLLM with PyTorch 2.14, Spark's custom code needs transformers 4.51, and the app needs no PyTorch at all.
+
+## One conversation turn
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant A as app.py
+  participant V as Voxtral
+  participant G as Gemma 4
+  participant S as Spark service
+  participant L as Spark LM
+  B->>A: start, then 80 ms PCM frames while held
+  A->>V: stream audio
+  V-->>A: text deltas
+  A-->>B: partial (live captions)
+  B->>A: stop (button released)
+  V-->>A: final transcript
+  A-->>B: final
+  A->>G: history + system prompt
+  G-->>A: reply (streamed)
+  A-->>B: assistant (reply text grows)
+  loop For each speakable sentence
+    A->>G: add full tashkeel (temperature 0)
+    G-->>A: vowelled sentence
+    A-->>B: tashkeel (exactly what the voice receives)
+    A->>S: POST /synth with vowelled text
+    S->>L: prompt token ids
+    L-->>S: speech tokens until silence
+    S-->>A: WAV
+    A-->>B: WAV (queued for playback)
+  end
+  A-->>B: timing
+```
+
+The complete reply is generated before vowelling starts, because Gemma runs with one slot and the vowelling step uses the same server.
+
+### Text handling between the models
+
+1. `split_sentences` splits the reply and merges one- or two-word fragments forward.
+2. `speakable` holds back sentences that are mostly English or Persian. These are shown on screen but not spoken, because the voice only reads Arabic.
+3. `clean_text` removes quotes, markdown and any existing vowel marks, and turns "…" into a comma.
+4. `vowelize` asks Gemma to add full tashkeel, including case endings.
+5. `merge_vowels` keeps the tutor's exact words. A vowelled word is accepted only if its letters match the original; otherwise the original word is kept, without vowels.
+
+### How Spark stops
+
+Spark tends to keep generating silence after the sentence ends. After speech, the token stream is almost entirely tokens 3140, 7645 and 6627. `spark_service.py` stops generation after 25 of these in a row (0.5 s of silence), keeps six for a natural decay, and caps a sentence at 900 tokens (18 s).
+
+### How interruption works
+
+Pressing talk stops local playback, and the app cancels the running reply task. A generation counter discards audio that was already in progress. In the end-to-end test, no stale audio arrived after an interruption.
+
+## Models and settings
+
+| Model | Source | Files used | Size | License |
+|---|---|---|---|---|
+| Voxtral Mini 4B Realtime Arabic | `mistralai/Voxtral-Mini-4B-Realtime-Arabic` | `consolidated.safetensors`, `params.json`, `tekken.json` | 8.25 GB | Apache-2.0 |
+| Gemma 4 26B-A4B QAT | `unsloth/gemma-4-26B-A4B-it-qat-GGUF` | `gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf` | 13.3 GB | Apache-2.0 |
+| Gemma MTP draft head | Same repository | `MTP/mtp-gemma-4-26B-A4B-it-Q4_0.gguf` | 0.23 GB | Apache-2.0 |
+| Arabic-TTS-Spark | `IbrahimSalah/Arabic-TTS-Spark` | `LLM/` (converted), `BiCodec/`, `wav2vec2-large-xlsr-53/`, code and config | 1.0 GB GGUF, 0.6 GB decoder, 1.2 GB wav2vec | Non-commercial (`fair-noncommercial-research-license`) |
+
+| Part | Settings |
+|---|---|
+| Voxtral | Greedy (temperature 0, fixed by vLLM). `--max-model-len 1024` (82 s per session), `--max-num-seqs 1`, `--gpu-memory-utilization 0.91`, PIECEWISE CUDA graphs, `VLLM_USE_FLASHINFER_SAMPLER=0`, `ninja` on `PATH` |
+| Gemma, tutor reply | Temperature 1.0, top_p 0.95, top_k 64 (Google's values). Thinking forced off with `--reasoning off` and `enable_thinking: false`. Maximum 300 tokens; last 24 messages of history |
+| Gemma, vowelling | Temperature 0, maximum 600 tokens |
+| Gemma server | `-c 16384`, KV cache `q8_0`, `--n-cpu-moe 16`, `--spec-type draft-mtp --spec-draft-n-max 4`, `--parallel 1` |
+| Spark language model | BF16 GGUF, `-c 2048`. Temperature 0.8, top_p 0.95, top_k 50 (vendor card), min_p 0, repeat penalty 1.0 |
+| Spark voice | No-transcript cloning mode; the reference voice is read once at startup. Output is 16 kHz |
+
+The tutor's system prompt tells Gemma to begin with «نقول: » and the corrected sentence when the learner makes a mistake. It is in `prompts/system.txt`.
+
+### Things that are easy to get wrong
+
+- **Convert Spark to BF16, not F16.** The F16 GGUF returns NaN predictions.
+- **Force Gemma's thinking off.** llama.cpp enables it by default, which adds 4–12 s and can return empty replies.
+- **Give Spark full tashkeel.** It is trained only on vowelled text.
+- **Load Spark's service on the CPU first.** The full model does not fit on GPU0 at startup. The service reads the reference voice, drops the language model and wav2vec, then moves only the decoder to the GPU (0.59 GB).
+- **Expect occasional startup crashes on this CPU.** Fresh PyTorch processes sometimes die with "Illegal instruction" on this non-AVX2 Xeon, at the first `torch.cos` call. The cause is unknown, and `ATEN_CPU_CAPABILITY` and `MKL_ENABLE_INSTRUCTIONS` did not stop it. `scripts/start.sh` retries up to four times.
+
+## Frontend
+
+The frontend is one static file, `index.html`, with no build step or external libraries. FastAPI serves it at `/`.
+
+- **Microphone:** an inline AudioWorklet downsamples to 16 kHz mono and sends 80 ms frames of PCM16 (1280 samples). Echo cancellation, noise suppression and automatic gain are on.
+- **Secure context:** browsers only allow the microphone on HTTPS or `localhost`. Today the page is reached through an SSH tunnel to `localhost:8791`.
+- **Controls:** hold the button or the space bar to talk, with a 60 s limit per turn. A text box allows typing instead, and "New conversation" clears the history.
+- **Display:** each tutor message shows the reply, then the vowelled text the voice received, then the time to first audio.
+- **Playback:** WAV sentences are queued with the Web Audio API so they play back to back.
+
+### WebSocket protocol (`/ws`)
+
+| Direction | Message | Meaning |
+|---|---|---|
+| Browser to server | `{"type":"start"}` | The learner started talking |
+| Browser to server | Binary | 80 ms of PCM16 at 16 kHz |
+| Browser to server | `{"type":"stop"}` | The learner stopped talking |
+| Browser to server | `{"type":"text","text":…}` | Typed message |
+| Browser to server | `{"type":"reset"}` | Clear the conversation |
+| Server to browser | `partial` | Live transcript so far |
+| Server to browser | `final` | Final transcript |
+| Server to browser | `assistant` | Reply text so far |
+| Server to browser | `tashkeel` | Vowelled text spoken so far |
+| Server to browser | `text_only` | A sentence was shown but not spoken |
+| Server to browser | `timing` | Stage timings for the turn |
+| Server to browser | `error` | Error message for the status line |
+| Server to browser | Binary | One WAV sentence |
+
+## Hardware and performance
+
+Measured on an HP Z820 with two RTX 3060 12 GB cards, 125 GB RAM and a Xeon E5-2687W v2 (no AVX2). Timing comes from an end-to-end test using synthetic speech over the real WebSocket, 10 turns.
+
+| Measure | Result |
+|---|---|
+| Time from end of speech to first audio | 5.0 s median, 4.6–6.3 s; 8.0 s on the first turn |
+| Transcript ready | 0.75 s |
+| Reply complete | about 1.6 s after end of speech |
+| Vowelling the first sentence | about 2.1 s |
+| Spark for the first sentence | about 1.2 s |
+| GPU memory free with everything running | GPU0 651 MiB, GPU1 1044 MiB |
+
+| Quality check | Result |
+|---|---|
+| Voxtral on human MSA | 0.12 % character error on 12 clips, 0.24 % on 20 clips by an earlier method |
+| Gemma vowelling, 40 MSA paragraphs of SadeedDiac-25 | 2.1 % case-ending errors, 4.5 % word errors, ignoring sukun. 3 paragraphs had changed letters and are excluded |
+| Tutor corrections, 7 error types | 6 of 7 caught in a text-only test; 5 of 7 right through the full chain with synthetic speech |
+| Blind listening, 12 sentences with grammar-dependent endings | Spark marked wrong on 0 or 1, the earlier Habibi voice on 9 |
+
+## Running it
+
+```bash
+scripts/start.sh     # starts all five processes, each with an 8-hour limit
+scripts/stop.sh      # stops them
+```
+
+From another computer, open a tunnel and then visit `http://localhost:8791`:
+
+```bash
+ssh -L 8791:127.0.0.1:8791 <user>@<server>
+```
+
+The tutor needs both GPUs, so other GPU workloads have to be stopped first.
+
+## Current limits
+
+- The tutor is push-to-talk, not full duplex.
+- Web search and other tools are not implemented, although Gemma 4 supports tool calling.
+- English and Persian explanations are text only.
+- Voxtral sometimes corrects a learner's mistake while transcribing, which hides it from the tutor. This has been seen once on synthetic speech and has not been measured on real learners.
+- About 1 word in 50 can still get a wrong ending from Gemma's vowelling, and Spark reads what it is given.
+- Gemma can still make grammar errors of its own.
+- The possessive-phrase (إضافة) correction is unreliable.
+- There are no user accounts, and conversations are not saved. Only stage timings are logged.
+
+See [ROADMAP.md](ROADMAP.md) for what comes next.
