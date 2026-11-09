@@ -19,7 +19,7 @@ Add a login before the tutor is shared more widely.
 Everything here runs without setup screens or extra questions, and the conversation never pauses.
 
 - Specific questions tied to the material, in place of generic ones (done).
-- A local learner record of sessions and errors, by grammar concept.
+- A local learner record of sessions and errors, by grammar concept (done).
 - Every error is corrected. A brief card appears in a side panel, and a learner who wants more taps "Explain this" for a fuller lesson. A first error may be a slip, so nothing assumes they don't know the rule.
 - Hints in place of answers for rules the learner has already seen.
 - Spaced follow-up over days. A concept counts as learned only when it's used correctly in free speech on two different days.

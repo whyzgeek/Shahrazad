@@ -10,7 +10,7 @@ import httpx, uvicorn, websockets
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 
-from tools import youtube
+from tools import learner, youtube
 from tools.registry import Context, Registry
 from tools.skills import load_skills
 from tools.subjects import match_source
@@ -34,6 +34,7 @@ ROLL_FORCE_S = 72      # begin one regardless, before the session runs out
 MAX_VOICE_WORDS = 20   # Spark stops at 18 s, about 30 words, so longer sentences are sent in parts
 DEBUG_LOG = ROOT / "data/debug_transcripts.jsonl" if os.environ.get("TUTOR_DEBUG_LOG", "").strip() in ("1", "true", "yes") else None
 REGISTRY = Registry(ROOT / "tools.yaml")
+LEARNER = learner.Learner()
 SKILLS = load_skills()
 FILLER_SEARCH = "لَحْظَةً، سَأَبْحَثُ عَنْ ذَلِكَ."
 FILLER_VIDEO = "لَحْظَةً، سَأَفْتَحُ الْفِيدْيُو."
@@ -158,6 +159,8 @@ class Session:
         self.parts, self.pending, self.rolling, self.samples, self.level, self.quiet = [], [], False, 0, 0.0, 0
         self.gen = 0
         self.ctx = Context(registry=REGISTRY, http=http)
+        self.session_id = LEARNER.start_session()
+        self.analysis = []
         self.notice = ""
         self.tool_notes = []
 
@@ -349,11 +352,21 @@ class Session:
         await self.close_vox()
         await self.send(type="final", text=heard)
         if heard:
-            self.reply = asyncio.create_task(self.respond(heard, t_end))
+            self.reply = asyncio.create_task(self.respond(heard, t_end, "voice"))
         else:
             await self.send(type="error", text="No speech was recognized. Please try again.")
 
-    async def respond(self, user, t_end):
+    async def analyze(self, turn_id, said, last_tutor, source):
+        """Find the learner's errors after the turn, so it never delays the reply."""
+        try:
+            found = await learner.find_errors(said, last_tutor, self.http, LLM, source)
+            rows = LEARNER.add_errors(turn_id, found)
+            if rows:
+                await self.send(type="errors", errors=rows)
+        except Exception as e:  # never let analysis disturb the conversation
+            print(f"error analysis failed: {type(e).__name__}: {e}", flush=True)
+
+    async def respond(self, user, t_end, source="typed"):
         gen = self.gen
         self.history.append({"role": "user", "content": user})
         self.history = self.history[-HISTORY_MESSAGES:]
@@ -414,7 +427,11 @@ class Session:
         except asyncio.CancelledError:
             self.history.append({"role": "assistant", "content": full})  # keep what was said before the interruption
             raise
+        last_tutor = next((m["content"] for m in reversed(self.history[:-1]) if m["role"] == "assistant"), "")
         self.history.append({"role": "assistant", "content": full})
+        turn_id = LEARNER.add_turn(self.session_id, source, user, full, self.ctx.subject.title if self.ctx.subject else None)
+        if not youtube.find_video(user) and ARABIC.search(user):
+            self.analysis.append(asyncio.create_task(self.analyze(turn_id, user, last_tutor, source)))
         subject = self.ctx.subject
         if subject and subject.planned_for == subject.index:
             subject.next_q += 1
@@ -470,12 +487,19 @@ async def ws_endpoint(ws: WebSocket):
                     await s.cancel_reply()
                     s.history = []
                     s.ctx.items, s.ctx.subject, s.ctx.skill, s.notice = [], None, "conversation", ""
+                    LEARNER.end_session(s.session_id)
+                    s.session_id = LEARNER.start_session()
+                elif d["type"] == "dismiss":
+                    LEARNER.dismiss(int(d["id"]))
         except (WebSocketDisconnect, RuntimeError):
             pass
         finally:
             await s.cancel_reply()
             await s.cancel_roll()
             await s.close_vox()
+            if s.analysis:
+                await asyncio.gather(*s.analysis, return_exceptions=True)  # finish saving what was already said
+            LEARNER.end_session(s.session_id)
 
 
 if __name__ == "__main__":

@@ -121,6 +121,12 @@ After a subject's first reply, Gemma prepares six specific questions from it: fa
 
 Opening a subject costs one slow turn, because Gemma has to read it: about 20 s for a 5,000-token video section on the test machine. The spoken "one moment" plays first, and later turns are cached.
 
+## Learner record
+
+Sessions, what was said, and errors by grammar concept are stored locally in `data/learner.db`. After each reply is spoken, Gemma checks what the learner said, so this never delays the conversation.
+
+An error is kept only if its wrong words really appear in what was said. Speech recognition can mishear words but rarely invents a grammar pattern, so word-choice errors in speech are shown but not tracked. Words Gemma judges misheard are dropped, and the learner can remove any card with "That's not what I said".
+
 ## Models and settings
 
 | Model | Source | Files used | Size | License |
