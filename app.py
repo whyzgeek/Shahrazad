@@ -3,7 +3,7 @@
 Browser mic -> Voxtral (vLLM) -> Gemma 4 (llama-server) -> Spark voice (spark_service.py).
 Binds to localhost by default; there is no login, so don't expose it directly. Started by scripts/start.sh.
 """
-import array, asyncio, base64, difflib, json, os, re, time
+import array, asyncio, base64, dataclasses, difflib, json, os, re, time
 from pathlib import Path
 
 import httpx, uvicorn, websockets
@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from tools import learner, youtube
 from tools.registry import Context, Registry
 from tools.skills import load_skills
-from tools.subjects import match_source
+from tools.subjects import Subject, match_source
 
 ROOT = Path(__file__).resolve().parent
 VOX = f"ws://127.0.0.1:{os.environ.get('VOXTRAL_PORT', '18098')}/v1/realtime"
@@ -33,6 +33,8 @@ ROLL_AFTER_S = 55      # start looking for a pause to begin a new Voxtral sessio
 ROLL_FORCE_S = 72      # begin one regardless, before the session runs out
 MAX_VOICE_WORDS = 20   # Spark stops at 18 s, about 30 words, so longer sentences are sent in parts
 DEBUG_LOG = learner.DB_PATH.with_name("debug_transcripts.jsonl") if os.environ.get("TUTOR_DEBUG_LOG", "").strip() in ("1", "true", "yes") else None
+REVIEW_EVERY_TURNS = int(os.environ.get("TUTOR_REVIEW_EVERY_TURNS", "4"))   # at most one follow-up question this often
+REVIEW_AFTER_MISTAKE_TURNS = 3    # let a few turns pass before bringing a fresh mistake back
 REGISTRY = Registry(ROOT / "tools.yaml")
 LEARNER = learner.Learner()
 SKILLS = load_skills()
@@ -151,6 +153,9 @@ async def vowelize(plain, http):
     return merge_vowels(plain, out.strip())
 
 
+learner_default_title = "New conversation"
+
+
 class Session:
     def __init__(self, ws, http):
         self.ws, self.http = ws, http
@@ -159,10 +164,94 @@ class Session:
         self.parts, self.pending, self.rolling, self.samples, self.level, self.quiet = [], [], False, 0, 0.0, 0
         self.gen = 0
         self.ctx = Context(registry=REGISTRY, http=http)
-        self.session_id = LEARNER.start_session()
+        self.session_id = None
+        self.title = learner_default_title
+        self.saved_subject = None   # the topic of this session, even while browsing for another
+        self.turn_no = 0
+        self.last_review_turn = -99
+        self.mistake_turn = {}      # concept -> turn it last went wrong, so a review doesn't come straight after
+        self.pending_target = None  # the concept the learner's next answer is being checked on
         self.analysis = []
         self.notice = ""
         self.tool_notes = []
+
+    # ------------------------------------------------------------ topic sessions
+    def state_json(self, history, subject):
+        c = self.ctx
+        return json.dumps({"history": history, "items": c.items, "skill": c.skill, "subject": dataclasses.asdict(subject) if subject else None, "turn_no": self.turn_no,
+                           "last_review_turn": self.last_review_turn, "mistake_turn": self.mistake_turn, "pending_target": self.pending_target}, ensure_ascii=False)
+
+    def save(self):
+        LEARNER.save_session(self.session_id, self.title, self.state_json(self.history, self.ctx.subject or self.saved_subject))
+
+    def clear_state(self):
+        c = self.ctx
+        self.history, c.items, c.subject, c.skill, self.notice, self.tool_notes = [], [], None, "conversation", "", []
+        self.saved_subject, self.turn_no, self.last_review_turn, self.mistake_turn, self.pending_target = None, 0, -99, {}, None
+
+    def restore(self, sid):
+        row = LEARNER.load_session(sid)
+        if not row:
+            return False
+        self.clear_state()
+        self.session_id, self.title = sid, row["title"] or learner_default_title
+        if row["state"]:
+            d = json.loads(row["state"])
+            c = self.ctx
+            self.history, c.items, c.skill = d.get("history", []), d.get("items", []), d.get("skill", "conversation")
+            self.turn_no, self.last_review_turn, self.mistake_turn, self.pending_target = d.get("turn_no", 0), d.get("last_review_turn", -99), d.get("mistake_turn", {}), d.get("pending_target")
+            if d.get("subject"):
+                c.subject = self.saved_subject = Subject(**d["subject"])
+        return True
+
+    async def send_sessions(self):
+        await self.send(type="sessions", current=self.session_id, sessions=LEARNER.list_sessions(self.session_id))
+
+    async def send_loaded(self):
+        s = self.ctx.subject or self.saved_subject
+        await self.send(type="session", id=self.session_id, turns=LEARNER.session_turns(self.session_id), errors=LEARNER.session_errors(self.session_id),
+                        subject={"kind": s.kind, "title": s.title, "url": s.url, "section": s.index + 1, "sections": len(s.sections)} if s else None)
+        await self.send_sessions()
+
+    async def resume_latest(self):
+        latest = LEARNER.latest_session()
+        if not (latest and self.restore(latest)):
+            self.clear_state()
+            self.session_id, self.title = LEARNER.start_session(), learner_default_title
+        await self.send_loaded()
+
+    async def new_session(self):
+        await self.cancel_reply()
+        await self.cancel_roll()
+        await self.close_vox()
+        self.save()
+        self.clear_state()
+        self.session_id, self.title = LEARNER.start_session(), learner_default_title
+        await self.send_loaded()
+
+    async def switch_session(self, sid):
+        await self.cancel_reply()
+        await self.cancel_roll()
+        await self.close_vox()
+        self.save()
+        if not self.restore(sid):
+            await self.send(type="error", text="That conversation no longer exists.")
+        await self.send_loaded()
+
+    def begin_topic(self, new):
+        """A new subject is a new topic: the old one is kept to come back to, and this turn continues in a fresh session."""
+        old = self.saved_subject
+        if old and old.url != new.url and self.history[:-1]:
+            LEARNER.save_session(self.session_id, self.title, self.state_json(self.history[:-1], old))
+            self.session_id = LEARNER.start_session()
+            self.history, self.turn_no, self.last_review_turn, self.mistake_turn, self.pending_target = self.history[-1:], 0, -99, {}, None
+        self.saved_subject, self.title = new, new.title
+
+    def pick_review(self):
+        """A concept to bring back in this conversation, spaced out so it stays a conversation."""
+        if self.turn_no - self.last_review_turn < REVIEW_EVERY_TURNS:
+            return None
+        return next((c for c in LEARNER.due_concepts() if self.turn_no - self.mistake_turn.get(c, -99) >= REVIEW_AFTER_MISTAKE_TURNS), None)
 
     def system_prompt(self):
         c = self.ctx
@@ -205,6 +294,7 @@ class Session:
         await self.say(FILLER_VIDEO, gen)
         subject, problem = await youtube.load(url)
         if subject:
+            self.begin_topic(subject)
             self.ctx.subject, self.ctx.skill = subject, "video-lesson"
             await self.announce_subject()
         return problem
@@ -224,7 +314,10 @@ class Session:
             self.ctx.user_text = user
             result = await REGISTRY.call(name, args, self.ctx)
             if self.ctx.subject is not subject_before or (name == "next_section" and self.ctx.subject):
+                if name == "open_item":
+                    self.begin_topic(self.ctx.subject)
                 await self.announce_subject()
+                await self.send_sessions()
             elif self.ctx.items is not items_before and self.ctx.items:
                 if name in ("find_news", "web_search"):
                     self.ctx.subject = None  # a fresh list means the learner is moving on
@@ -356,11 +449,19 @@ class Session:
         else:
             await self.send(type="error", text="No speech was recognized. Please try again.")
 
-    async def analyze(self, turn_id, said, last_tutor, source):
-        """Find the learner's errors after the turn, so it never delays the reply."""
+    async def analyze(self, turn_id, turn_no, said, last_tutor, source, target):
+        """Find the learner's errors after the turn, so it never delays the reply, and update their follow-up schedule."""
         try:
-            found = await learner.find_errors(said, last_tutor, self.http, LLM, source)
+            found, uses = await learner.find_errors(said, last_tutor, self.http, LLM, source, LEARNER.practising())
             rows = LEARNER.add_errors(turn_id, found)
+            wrong = {e["concept"] for e in found}
+            for c in wrong:
+                self.mistake_turn[c] = turn_no
+            if target:   # this answer was the response to a follow-up question
+                result = False if target in wrong else await learner.check_target(said, target, self.http, LLM)
+                if result is not None:
+                    LEARNER.review_result(target, result)
+            LEARNER.record_free_use([c for c in uses if c != target])
             if rows:
                 await self.send(type="errors", errors=rows)
         except Exception as e:  # never let analysis disturb the conversation
@@ -373,6 +474,9 @@ class Session:
         t = {"stt_s": round(time.time() - t_end, 3)}
         full, first_token, shown = "", None, []
         self.notice, self.tool_notes = "", []
+        self.turn_no += 1
+        target, self.pending_target = self.pending_target, None
+        review = self.pick_review()
 
         async def on_text(text):
             nonlocal first_token, full
@@ -394,11 +498,15 @@ class Session:
                 msgs = [{"role": "system", "content": self.system_prompt()}] + self.history
                 notes = []
                 s = self.ctx.subject
-                if s and s.next_q < len(s.questions):
+                if review:
+                    m, card = LEARNER.last_mistake(review), learner.CARDS[review]
+                    example = f" They recently said «{m['wrong']}» where «{m['correct']}» was right." if m else ""
+                    notes.append(f"Follow-up to do now: the learner has been practising this rule: {card['rule']}{example} End your reply with one question about the current topic whose natural answer makes them use this structure. Don't say it's a review or mention the earlier mistake.")
+                elif s and s.next_q < len(s.questions):
                     notes.append("A question you could ask next if it fits the conversation: " + s.questions[s.next_q])
                 seen = LEARNER.seen_rules()
                 if seen:
-                    notes.append("The learner has already met these rules: " + " ".join(seen) + " If their last sentence breaks one of them, don't say the correct form yet. Instead of «نقول», give a short hint in Arabic that points at the word, and stop there so they can try again, without asking any other question. If they were already hinted about this and got it wrong again, give the correct form. Correct other kinds of error as usual. When it fits, ask something whose answer would make them use one of these rules.")
+                    notes.append("The learner has already met these rules: " + " ".join(seen) + " If their last sentence is correct, don't correct it or repeat it back. If it breaks one of them, don't say the correct form yet. Instead of «نقول», give a short hint in Arabic that points at the word, and stop there so they can try again, without asking any other question. If they were already hinted about this and got it wrong again, give the correct form. Correct other kinds of error as usual. When it fits, ask something whose answer would make them use one of these rules.")
                 if notes:
                     # At the very end of the prompt, so everything before it stays in Gemma's cache.
                     msgs[-1] = {**msgs[-1], "content": msgs[-1]["content"] + "\n\n[Private note to the tutor, not from the learner. Never correct it or mention it. " + " ".join(notes) + "]"}
@@ -437,10 +545,12 @@ class Session:
         self.history.append({"role": "assistant", "content": full})
         turn_id = LEARNER.add_turn(self.session_id, source, user, full, self.ctx.subject.title if self.ctx.subject else None)
         if not youtube.find_video(user) and ARABIC.search(user):
-            self.analysis.append(asyncio.create_task(self.analyze(turn_id, user, last_tutor, source)))
+            self.analysis.append(asyncio.create_task(self.analyze(turn_id, self.turn_no, user, last_tutor, source, target)))
         subject = self.ctx.subject
-        if subject and subject.planned_for == subject.index:
+        if subject and subject.planned_for == subject.index and not review:
             subject.next_q += 1
+        if review:
+            self.pending_target, self.last_review_turn = review, self.turn_no
         await self.send(type="timing", **t)
         LOG.parent.mkdir(exist_ok=True)
         with open(LOG, "a") as f:  # timings only, never the conversation text
@@ -448,7 +558,12 @@ class Session:
         if DEBUG_LOG:  # off unless TUTOR_DEBUG_LOG=1, because this keeps what was said
             with open(DEBUG_LOG, "a") as f:
                 f.write(json.dumps({"at": int(time.time()), "heard": user, "reply": full, "spoken": shown}, ensure_ascii=False) + "\n")
+        if self.title == learner_default_title:
+            self.title = self.history[-2]["content"][:40]
+        self.save()
+        await self.send_sessions()
         await self.plan_questions()
+        self.save()
 
     async def plan_questions(self):
         """Prepare specific questions after a subject opens, once its first reply is spoken. Uses the discussion's cached slot."""
@@ -484,6 +599,7 @@ async def ws_endpoint(ws: WebSocket):
     await ws.accept()
     async with httpx.AsyncClient() as http:
         s = Session(ws, http)
+        await s.resume_latest()
         try:
             while True:
                 m = await ws.receive()
@@ -501,11 +617,9 @@ async def ws_endpoint(ws: WebSocket):
                     await s.cancel_reply()
                     s.reply = asyncio.create_task(s.respond(d["text"], time.time()))
                 elif d["type"] == "reset":
-                    await s.cancel_reply()
-                    s.history = []
-                    s.ctx.items, s.ctx.subject, s.ctx.skill, s.notice = [], None, "conversation", ""
-                    LEARNER.end_session(s.session_id)
-                    s.session_id = LEARNER.start_session()
+                    await s.new_session()
+                elif d["type"] == "switch":
+                    await s.switch_session(int(d["id"]))
                 elif d["type"] == "dismiss":
                     LEARNER.dismiss(int(d["id"]))
         except (WebSocketDisconnect, RuntimeError):
@@ -516,7 +630,7 @@ async def ws_endpoint(ws: WebSocket):
             await s.close_vox()
             if s.analysis:
                 await asyncio.gather(*s.analysis, return_exceptions=True)  # finish saving what was already said
-            LEARNER.end_session(s.session_id)
+            s.save()
 
 
 if __name__ == "__main__":

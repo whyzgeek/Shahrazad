@@ -22,7 +22,8 @@ Everything here runs without setup screens or extra questions, and the conversat
 - A local learner record of sessions and errors, by grammar concept (done).
 - Every error is corrected. A brief card appears in a side panel, and a learner who wants more taps "Explain this" for a fuller lesson. A first error may be a slip, so nothing assumes they don't know the rule (done).
 - Hints in place of answers for rules the learner has already seen (done).
-- Spaced follow-up over days. A concept counts as learned only when it's used correctly in free speech on two different days.
+- Sessions by topic that the learner can switch between and continue (done).
+- Spaced follow-up over days, asked within whichever topic is active. A concept counts as learned only when it's used correctly in free speech on two different days (done).
 - Continuous assessment of the learner's level, adjusting speech, corrections, cards and questions.
 
 ## Phase 4: more natural conversation

@@ -129,6 +129,12 @@ An error is kept only if its wrong words really appear in what was said. Cards a
 
 Each error is matched to a grammar concept in `cards.yaml`, which holds a hand-written one-line reminder and a lesson that opens only when the learner taps "Explain this". For rules the learner has already met, the tutor gives a hint and lets them try again, and gives the correct form if they get it wrong again.
 
+## Sessions and follow-up
+
+Each topic is its own session, saved with its history, subject and list of options. Opening a new subject starts a new session and keeps the old one to return to. The page lists sessions with their turn counts, and reconnecting resumes the latest.
+
+Concepts the learner has got wrong come back on a schedule of 1, 3, 7 and 21 days, moving further out after a success and back after a failure. A follow-up isn't a separate exercise: at most every four turns, the tutor asks a question about whichever topic is active that the answer needs that structure for, without saying it's a review. A focused check then decides whether the learner used it correctly. A concept counts as learned after correct, unprompted use on two different days.
+
 ## Models and settings
 
 | Model | Source | Files used | Size | License |
