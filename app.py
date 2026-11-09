@@ -172,6 +172,19 @@ async def vowel_words(sentence, words, http):
     return [g if DIAC.sub("", g) == w else w for g, w in zip(got, words)]
 
 
+def apply_spelling(original, vowelled):
+    """Carry a spelling fix from the vowelled text into the displayed sentence, so what's shown matches what's spoken."""
+    core = lambda w: re.sub(r"[^\u0621-\u064A]", "", DIAC.sub("", w))
+    a, b = original.split(), vowelled.split()
+    ca, cb = [core(w) for w in a], [core(w) for w in b]
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, ca, cb, autojunk=False).get_opcodes():
+        if tag == "replace" and i2 - i1 == j2 - j1:
+            for k in range(i2 - i1):
+                if ca[i1 + k] and difflib.SequenceMatcher(None, ca[i1 + k], cb[j1 + k]).ratio() >= 0.7:
+                    a[i1 + k] = a[i1 + k].replace(ca[i1 + k], cb[j1 + k], 1)
+    return " ".join(a)
+
+
 async def vowelize(plain, http):
     out = ""
     async for piece in chat([{"role": "user", "content": VOWEL_PROMPT + plain}], http, {"temperature": 0}, 600):
@@ -588,6 +601,10 @@ class Session:
                 vowelled = await vowelize(clean_text(s), self.http)
                 t1 = time.time()
                 shown.append(vowelled)
+                fixed = apply_spelling(s, vowelled)
+                if fixed != s:
+                    full = full.replace(s, fixed, 1)
+                    await self.send(type="assistant", text=full)
                 await self.send(type="tashkeel", text=" ".join(shown))  # exactly what the voice is given
                 for part in split_long(vowelled):
                     r = await self.http.post(SPARK, json={"text": part}, timeout=60)
