@@ -1,5 +1,5 @@
 #!/bin/bash
-# Starts Shahrazad's five local processes. Each one stops by itself after 8 hours. Settings come from .env.
+# Starts Shahrazad's five local processes. Each stops by itself after TUTOR_MAX_HOURS (default 8). Settings come from .env.
 # Usage: scripts/start.sh
 cd "$(dirname "$0")/.." || exit 1
 [ -f .env ] || { echo "Missing .env: copy .env.example and fill it in."; exit 1; }
@@ -9,7 +9,7 @@ set -a; . ./.env; set +a
 : "${VOXTRAL_PORT:=18098}" "${GEMMA_PORT:=18099}" "${SPARK_LM_PORT:=18097}" "${SPARK_PORT:=18096}" "${TUTOR_PORT:=8791}"
 export SHAHRAZAD_MODELS VOXTRAL_PORT GEMMA_PORT SPARK_LM_PORT SPARK_PORT TUTOR_PORT
 [ -n "$SHAHRAZAD_REF_AUDIO" ] && [ -f "$SHAHRAZAD_REF_AUDIO" ] || { echo "SHAHRAZAD_REF_AUDIO must point to a reference voice clip you have the rights to."; exit 1; }
-LIFE=28800; R=run; mkdir -p "$R" data; M=$SHAHRAZAD_MODELS
+LIFE=$(( ${TUTOR_MAX_HOURS:-8} * 3600 )); R=run; mkdir -p "$R" data; M=$SHAHRAZAD_MODELS
 
 is_up(){ [ "$(timeout 3 curl -k -s -o /dev/null "$1" -w '%{http_code}')" = 200 ]; }
 wait_up(){ for _ in $(seq 1 100); do is_up "$1" && return 0; python3 -c "import time;time.sleep(3)"; done; echo "timed out waiting for $1"; exit 1; }
@@ -52,7 +52,7 @@ HF_HUB_OFFLINE=1 CUDA_VISIBLE_DEVICES=$GPU_VOICE start_retry spark "http://127.0
 
 SCHEME=http; [ -n "$TUTOR_SSL_CERT" ] && SCHEME=https
 if [ "$SCHEME" = http ] && [ "$TUTOR_HOST" != 127.0.0.1 ] && [ "$TUTOR_HOST" != localhost ]; then
-  echo "Warning: browsers block the microphone on plain HTTP outside localhost. Run scripts/make_cert.sh and set TUTOR_SSL_CERT and TUTOR_SSL_KEY."
+  echo "Warning: browsers block the microphone on plain HTTP outside localhost. Run ./install.sh --lan to set up HTTPS."
 fi
 start_retry app "$SCHEME://$TUTOR_HOST:$TUTOR_PORT/" timeout $LIFE "$VENV_TUTOR/bin/python" app.py
 nvidia-smi --query-gpu=index,memory.free --format=csv,noheader

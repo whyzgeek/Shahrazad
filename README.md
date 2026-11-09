@@ -24,7 +24,7 @@ This project is early and has only been run on that one machine.
 
 ### Which hardware works
 
-You don't need two identical cards. `scripts/configure.py` detects your GPUs and system memory, works out where each model should go, and saves the plan. The key limits are that one card needs about 11.4 GB free for the speech recognizer, and the tutor model can move parts of itself to the CPU and system memory when GPU memory is short.
+You don't need two identical cards. The installer detects your GPUs and system memory and works out where each model should go. The key limits are that one card needs about 11.4 GB free for the speech recognizer, and the tutor model can move parts of itself to the CPU and system memory when GPU memory is short.
 
 | GPUs | System memory | What to expect |
 |---|---|---|
@@ -38,21 +38,15 @@ You don't need two identical cards. `scripts/configure.py` detects your GPUs and
 
 To preview other hardware, run for example `scripts/configure.py --gpus 16,8 --ram 64`. Only the first row has actually been run. The others are calculated from its measurements, and speed depends on your CPU when many layers are on it: on the test machine Gemma ran at 46 tokens/s with 10 layers on the CPU and 28 with all 30.
 
-## Setup
+## Install
 
 ```bash
-cp .env.example .env     # then set SHAHRAZAD_REF_AUDIO and the other paths
-scripts/configure.py --write
-
-python3.12 -m venv .venv-tutor   && .venv-tutor/bin/pip install -r requirements/tutor.txt
-python3.12 -m venv .venv-voxtral && .venv-voxtral/bin/pip install -r requirements/voxtral.txt
-python3.12 -m venv .venv-spark
-.venv-spark/bin/pip install torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cu128
-.venv-spark/bin/pip install -r requirements/spark.txt
-
-scripts/download_models.sh
-scripts/convert_spark.sh
+./install.sh --ref-audio voice.wav
 ```
+
+The installer checks what your machine already has and does only what's missing: Python environments, a llama.cpp build, about 28 GB of model downloads, the Spark conversion, and the GPU layout for your hardware. It's safe to run again, and an interrupted download resumes. `./install.sh --check` reports what's needed without changing anything.
+
+To use the tutor from other devices on your network, add `--lan`. If you already have models or a llama.cpp build, point to them with `--models` and `--llama-server`. See `./install.sh --help`.
 
 ## Run
 
@@ -60,16 +54,9 @@ scripts/convert_spark.sh
 scripts/start.sh
 ```
 
-Open `http://localhost:8791`, allow the microphone, then hold the button or the space bar while you speak. `scripts/stop.sh` shuts everything down, and every process also stops by itself after 8 hours.
+Open `http://localhost:8791`, allow the microphone, then hold the button or the space bar while you speak. `scripts/stop.sh` shuts everything down. Every process also stops by itself after 8 hours; change `TUTOR_MAX_HOURS` in `.env` to adjust that.
 
-Browsers only allow the microphone on `localhost` or HTTPS. To use it from another device on your network, create a certificate and set the address in `.env`:
-
-```bash
-scripts/make_cert.sh 192.168.1.50     # your server's address
-# in .env: TUTOR_HOST=192.168.1.50, TUTOR_SSL_CERT=certs/cert.pem, TUTOR_SSL_KEY=certs/key.pem
-```
-
-Then open `https://192.168.1.50:8791` and accept the browser's warning about the self-signed certificate. An SSH tunnel to `localhost:8791` also works.
+Browsers only allow the microphone on `localhost` or HTTPS. `./install.sh --lan` sets up HTTPS so other devices can open the tutor at `https://<server-address>:8791`; accept the browser's warning about the self-signed certificate. An SSH tunnel to `localhost:8791` also works.
 
 The server has no login, so anyone who can reach that address can use the tutor. Keep it on a network you trust.
 

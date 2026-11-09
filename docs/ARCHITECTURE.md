@@ -216,7 +216,7 @@ scripts/start.sh     # starts all five processes, each with an 8-hour limit
 scripts/stop.sh      # stops them
 ```
 
-From another device, set `TUTOR_HOST` and enable HTTPS with `scripts/make_cert.sh`, because browsers only allow the microphone on HTTPS or `localhost`. Alternatively, open a tunnel and visit `http://localhost:8791`:
+From another device, run `./install.sh --lan` to enable HTTPS, because browsers only allow the microphone on HTTPS or `localhost`. Alternatively, open a tunnel and visit `http://localhost:8791`:
 
 ```bash
 ssh -L 8791:127.0.0.1:8791 <user>@<server>

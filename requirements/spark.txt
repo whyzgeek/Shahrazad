@@ -13,7 +13,7 @@ packaging
 fastapi==0.162.2
 uvicorn==0.54.0
 httpx==0.28.1
-# Only for scripts/convert_spark.sh
+# Only for converting Spark during install
 sentencepiece
 pyyaml
 tqdm

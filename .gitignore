@@ -8,6 +8,7 @@ __pycache__/
 
 # Models and voices are downloaded or supplied locally, never committed
 models/
+third_party/
 *.gguf
 *.safetensors
 *.wav
