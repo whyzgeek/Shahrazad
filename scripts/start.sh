@@ -5,13 +5,13 @@ cd "$(dirname "$0")/.." || exit 1
 [ -f .env ] || { echo "Missing .env: copy .env.example and fill it in."; exit 1; }
 set -a; . ./.env; set +a
 : "${SHAHRAZAD_MODELS:=./models}" "${LLAMA_SERVER:=llama-server}" "${VENV_TUTOR:=.venv-tutor}" "${VENV_SPARK:=.venv-spark}" "${VENV_VOXTRAL:=.venv-voxtral}"
-: "${GPU_LLM:=0}" "${GPU_ASR:=1}" "${GEMMA_CPU_MOE:=16}" "${VOXTRAL_GPU_FRACTION:=0.91}"
+: "${GPU_LLM:=0}" "${GPU_ASR:=1}" "${GPU_VOICE:=$GPU_LLM}" "${GEMMA_CPU_MOE:=16}" "${VOXTRAL_GPU_FRACTION:=0.91}" "${TUTOR_HOST:=127.0.0.1}"
 : "${VOXTRAL_PORT:=18098}" "${GEMMA_PORT:=18099}" "${SPARK_LM_PORT:=18097}" "${SPARK_PORT:=18096}" "${TUTOR_PORT:=8791}"
 export SHAHRAZAD_MODELS VOXTRAL_PORT GEMMA_PORT SPARK_LM_PORT SPARK_PORT TUTOR_PORT
 [ -n "$SHAHRAZAD_REF_AUDIO" ] && [ -f "$SHAHRAZAD_REF_AUDIO" ] || { echo "SHAHRAZAD_REF_AUDIO must point to a reference voice clip you have the rights to."; exit 1; }
 LIFE=28800; R=run; mkdir -p "$R" data; M=$SHAHRAZAD_MODELS
 
-is_up(){ [ "$(timeout 3 curl -s -o /dev/null "$1" -w '%{http_code}')" = 200 ]; }
+is_up(){ [ "$(timeout 3 curl -k -s -o /dev/null "$1" -w '%{http_code}')" = 200 ]; }
 wait_up(){ for _ in $(seq 1 100); do is_up "$1" && return 0; python3 -c "import time;time.sleep(3)"; done; echo "timed out waiting for $1"; exit 1; }
 # Fresh PyTorch processes occasionally die with "Illegal instruction" on CPUs without AVX2, so this retries.
 start_retry(){ local name=$1 url=$2; shift 2
@@ -45,11 +45,15 @@ echo $! > "$R/gemma.pid"
 wait_up "http://127.0.0.1:$GEMMA_PORT/health"
 
 # Voice: Spark's language model (BF16 GGUF only; F16 returns NaN), then its decoder service.
-CUDA_VISIBLE_DEVICES=$GPU_LLM setsid nohup timeout $LIFE "$LLAMA_SERVER" -m "$M/spark-gguf/spark-llm-BF16.gguf" --port "$SPARK_LM_PORT" --host 127.0.0.1 -ngl all -fa on -c 2048 --parallel 1 > "$R/sparklm.log" 2>&1 &
+CUDA_VISIBLE_DEVICES=$GPU_VOICE setsid nohup timeout $LIFE "$LLAMA_SERVER" -m "$M/spark-gguf/spark-llm-BF16.gguf" --port "$SPARK_LM_PORT" --host 127.0.0.1 -ngl all -fa on -c 2048 --parallel 1 > "$R/sparklm.log" 2>&1 &
 echo $! > "$R/sparklm.pid"
 wait_up "http://127.0.0.1:$SPARK_LM_PORT/health"
-HF_HUB_OFFLINE=1 CUDA_VISIBLE_DEVICES=$GPU_LLM start_retry spark "http://127.0.0.1:$SPARK_PORT/health" timeout $LIFE "$VENV_SPARK/bin/python" -I spark_service.py
+HF_HUB_OFFLINE=1 CUDA_VISIBLE_DEVICES=$GPU_VOICE start_retry spark "http://127.0.0.1:$SPARK_PORT/health" timeout $LIFE "$VENV_SPARK/bin/python" -I spark_service.py
 
-start_retry app "http://127.0.0.1:$TUTOR_PORT/" timeout $LIFE "$VENV_TUTOR/bin/python" -I app.py
+SCHEME=http; [ -n "$TUTOR_SSL_CERT" ] && SCHEME=https
+if [ "$SCHEME" = http ] && [ "$TUTOR_HOST" != 127.0.0.1 ] && [ "$TUTOR_HOST" != localhost ]; then
+  echo "Warning: browsers block the microphone on plain HTTP outside localhost. Run scripts/make_cert.sh and set TUTOR_SSL_CERT and TUTOR_SSL_KEY."
+fi
+start_retry app "$SCHEME://$TUTOR_HOST:$TUTOR_PORT/" timeout $LIFE "$VENV_TUTOR/bin/python" -I app.py
 nvidia-smi --query-gpu=index,memory.free --format=csv,noheader
-echo "Shahrazad is running on 127.0.0.1:$TUTOR_PORT"
+echo "Shahrazad is running at $SCHEME://$TUTOR_HOST:$TUTOR_PORT"

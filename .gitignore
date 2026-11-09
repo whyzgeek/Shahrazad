@@ -17,3 +17,5 @@ models/
 # Runtime
 run/
 data/
+certs/
+*.pem

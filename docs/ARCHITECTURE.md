@@ -1,8 +1,10 @@
 # Shahrazad architecture
 
-Shahrazad holds a spoken conversation in Modern Standard Arabic (MSA), corrects the learner's mistakes, and shows and speaks fully vowelled Arabic. All models run locally on one machine.
+Shahrazad is an AI-based speaking tutor. It holds a spoken conversation in Modern Standard Arabic (MSA), corrects the learner's mistakes, and shows and speaks fully vowelled Arabic. All of its AI models run locally on one machine.
 
 ## At a glance
+
+GPU numbers below describe the tested layout of two 12 GB cards. `scripts/configure.py` chooses the placement for other hardware.
 
 | Job | Model | Runtime | Device |
 |---|---|---|---|
@@ -122,7 +124,7 @@ The tutor's system prompt tells Gemma to begin with «نقول: » and the corre
 The frontend is one static file, `index.html`, with no build step or external libraries. FastAPI serves it at `/`.
 
 - **Microphone:** an inline AudioWorklet downsamples to 16 kHz mono and sends 80 ms frames of PCM16 (1280 samples). Echo cancellation, noise suppression and automatic gain are on.
-- **Secure context:** browsers only allow the microphone on HTTPS or `localhost`. Today the page is reached through an SSH tunnel to `localhost:8791`.
+- **Secure context:** browsers only allow the microphone on HTTPS or `localhost`. The page is reached through a self-signed HTTPS address on the local network, or an SSH tunnel to `localhost:8791`.
 - **Controls:** hold the button or the space bar to talk, with a 60 s limit per turn. A text box allows typing instead, and "New conversation" clears the history.
 - **Display:** each tutor message shows the reply, then the vowelled text the voice received, then the time to first audio.
 - **Playback:** WAV sentences are queued with the Web Audio API so they play back to back.
@@ -165,6 +167,20 @@ Measured on an HP Z820 with two RTX 3060 12 GB cards, 125 GB RAM and a Xeon E5-2
 | Tutor corrections, 7 error types | 6 of 7 caught in a text-only test; 5 of 7 right through the full chain with synthetic speech |
 | Blind listening, 12 sentences with grammar-dependent endings | Spark marked wrong on 0 or 1, the earlier Habibi voice on 9 |
 
+## Adapting to other hardware
+
+`scripts/configure.py` detects the NVIDIA GPUs and system memory, or previews other hardware with `--gpus` and `--ram`. It tries every placement of the three GPU workloads, keeps the one that leaves the most of Gemma on the GPU, and writes `GPU_ASR`, `GPU_LLM`, `GPU_VOICE`, `GEMMA_CPU_MOE` and `VOXTRAL_GPU_FRACTION` to `.env`.
+
+| Workload | GPU memory | Can it shrink? |
+|---|---|---|
+| Voxtral with 82 s sessions | 10.85 GB | No, it needs one card with about 11.4 GB free |
+| Spark language model and decoder | 2.1 GB | No |
+| Gemma 4 26B-A4B + draft head | 14.9 GB with everything on the GPU | Yes, 409 MB less per layer moved to the CPU, down to 2.6 GB at 30 layers |
+
+The planner keeps 500 MB free on each GPU in use and allows for a desktop on the GPU driving a monitor. System memory use was measured at about 17 GB at 16 layers, and each extra layer on the CPU adds about 0.4 GB.
+
+Gemma's speed depends on the CPU as layers move there. On the test machine it ran at 46 tokens/s with 10 layers on the CPU, 43 with 14, 34 with 22 and 28 with 30. Only the two-card layout has been run end to end; the others are calculated from these measurements.
+
 ## Running it
 
 ```bash
@@ -172,7 +188,7 @@ scripts/start.sh     # starts all five processes, each with an 8-hour limit
 scripts/stop.sh      # stops them
 ```
 
-From another computer, open a tunnel and then visit `http://localhost:8791`:
+From another device, set `TUTOR_HOST` and enable HTTPS with `scripts/make_cert.sh`, because browsers only allow the microphone on HTTPS or `localhost`. Alternatively, open a tunnel and visit `http://localhost:8791`:
 
 ```bash
 ssh -L 8791:127.0.0.1:8791 <user>@<server>

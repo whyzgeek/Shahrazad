@@ -37,6 +37,11 @@ Planned approach:
 - Speaking English and Persian explanations.
 - True full duplex, through an Arabic fine-tune of a full-duplex model.
 
+## Hardware
+
+- Support smaller GPUs by testing a smaller tutor model and a lighter speech recognizer.
+- Confirm the calculated layouts in `scripts/configure.py` on real hardware beyond two 12 GB cards.
+
 ## Before publishing a model
 
 Spark's weights are non-commercial, so its converted GGUF can be shared only if its terms allow redistribution. The current reference voice is not part of this repository and has to be replaced by one with clear rights.

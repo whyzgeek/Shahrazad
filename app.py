@@ -246,4 +246,5 @@ async def ws_endpoint(ws: WebSocket):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host=HOST, port=PORT, log_level="warning", ws_max_size=2**22)
+    tls = {"ssl_certfile": os.environ["TUTOR_SSL_CERT"], "ssl_keyfile": os.environ["TUTOR_SSL_KEY"]} if os.environ.get("TUTOR_SSL_CERT") else {}
+    uvicorn.run(app, host=HOST, port=PORT, log_level="warning", ws_max_size=2**22, **tls)
