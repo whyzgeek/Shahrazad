@@ -187,6 +187,38 @@ def apply_spelling(original, vowelled):
     return " ".join(a)
 
 
+async def make_title(subject_title, turns, http):
+    """A short, meaningful name for a session, like a chat app's sidebar."""
+    lines = ([f"Subject: {subject_title}"] if subject_title else []) + [f"{t['role']}: {t['content'][:300]}" for t in turns[:6]]
+    ask = "Write a short title of 2 to 5 English words that names what this Arabic lesson conversation is about. Return only the title, with no quotes.\n\n" + "\n".join(lines)
+    body = {"messages": [{"role": "user", "content": ask}], "max_tokens": 24, "temperature": 0, "id_slot": 1, "chat_template_kwargs": {"enable_thinking": False}}
+    r = await http.post(LLM, json=body, timeout=60)
+    r.raise_for_status()
+    title = r.json()["choices"][0]["message"]["content"].strip().strip('"\'«»*#').splitlines()[0].strip()
+    return title[:60] or None
+
+
+async def retitle_old_sessions(http):
+    """Give earlier sessions meaningful names once, in the background."""
+    for s in LEARNER.list_sessions(None, limit=200):
+        row = LEARNER.load_session(s["id"])
+        state = json.loads(row["state"]) if row and row["state"] else {}
+        if state.get("titled") or not s["turns"]:
+            continue
+        turns = [m for t in LEARNER.session_turns(s["id"])[:3] for m in ({"role": "learner", "content": t["said"]}, {"role": "tutor", "content": t["reply"]})]
+        subject = (state.get("subject") or {}).get("title")
+        try:
+            title = await make_title(subject, turns, http)
+        except Exception:
+            continue
+        if title:
+            state["titled"] = True
+            LEARNER.save_session(s["id"], title, json.dumps(state, ensure_ascii=False))
+
+
+RETITLED = False
+
+
 async def vowelize(plain, http):
     out = ""
     async for piece in chat([{"role": "user", "content": VOWEL_PROMPT + plain}], http, {"temperature": 0}, 600):
@@ -224,6 +256,7 @@ class Session:
         self.last_review_turn = -99
         self.mistake_turn = {}      # concept -> turn it last went wrong, so a review doesn't come straight after
         self.pending_target = None  # the concept the learner's next answer is being checked on
+        self.titled = False         # whether the session has a generated name yet
         self.analysis = []
         self.notice = ""
         self.tool_notes = []
@@ -232,15 +265,19 @@ class Session:
     def state_json(self, history, subject):
         c = self.ctx
         return json.dumps({"history": history, "items": c.items, "skill": c.skill, "subject": dataclasses.asdict(subject) if subject else None, "turn_no": self.turn_no,
-                           "last_review_turn": self.last_review_turn, "mistake_turn": self.mistake_turn, "pending_target": self.pending_target}, ensure_ascii=False)
+                           "last_review_turn": self.last_review_turn, "mistake_turn": self.mistake_turn, "pending_target": self.pending_target, "titled": self.titled}, ensure_ascii=False)
 
     def save(self):
+        if not self.titled:  # it may have been named in the background since it was loaded
+            row = LEARNER.load_session(self.session_id)
+            if row and row["state"] and json.loads(row["state"]).get("titled"):
+                self.title, self.titled = row["title"], True
         LEARNER.save_session(self.session_id, self.title, self.state_json(self.history, self.ctx.subject or self.saved_subject))
 
     def clear_state(self):
         c = self.ctx
         self.history, c.items, c.subject, c.skill, self.notice, self.tool_notes = [], [], None, "conversation", "", []
-        self.saved_subject, self.turn_no, self.last_review_turn, self.mistake_turn, self.pending_target = None, 0, -99, {}, None
+        self.saved_subject, self.turn_no, self.last_review_turn, self.mistake_turn, self.pending_target, self.titled = None, 0, -99, {}, None, False
 
     def restore(self, sid):
         row = LEARNER.load_session(sid)
@@ -253,6 +290,7 @@ class Session:
             c = self.ctx
             self.history, c.items, c.skill = d.get("history", []), d.get("items", []), d.get("skill", "conversation")
             self.turn_no, self.last_review_turn, self.mistake_turn, self.pending_target = d.get("turn_no", 0), d.get("last_review_turn", -99), d.get("mistake_turn", {}), d.get("pending_target")
+            self.titled = d.get("titled", False)
             if d.get("subject"):
                 c.subject = self.saved_subject = Subject(**d["subject"])
         return True
@@ -298,7 +336,7 @@ class Session:
             LEARNER.save_session(self.session_id, self.title, self.state_json(self.history[:-1], old))
             self.session_id = LEARNER.start_session()
             self.history, self.turn_no, self.last_review_turn, self.mistake_turn, self.pending_target = self.history[-1:], 0, -99, {}, None
-        self.saved_subject, self.title = new, new.title
+        self.saved_subject, self.title, self.titled = new, new.title, False
 
     def pick_review(self):
         """A concept to bring back in this conversation, spaced out so it stays a conversation."""
@@ -642,6 +680,14 @@ class Session:
         self.save()
         await self.send_sessions()
         await self.plan_questions()
+        if not self.titled and (self.ctx.subject or self.turn_no >= 2):
+            try:
+                title = await make_title(self.ctx.subject.title if self.ctx.subject else None, self.history, self.http)
+                if title:
+                    self.title, self.titled = title, True
+                    await self.send_sessions()
+            except Exception as e:
+                print(f"titling failed: {type(e).__name__}", flush=True)
         self.save()
 
     async def plan_questions(self):
@@ -680,6 +726,10 @@ async def ws_endpoint(ws: WebSocket):
     async with httpx.AsyncClient() as http:
         s = Session(ws, http)
         await s.resume_latest()
+        global RETITLED
+        if not RETITLED:
+            RETITLED = True
+            asyncio.create_task(retitle_old_sessions(httpx.AsyncClient()))
         try:
             while True:
                 m = await ws.receive()
