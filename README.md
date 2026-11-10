@@ -1,4 +1,4 @@
-# Shahrazad (شهرزاد)
+# <img src="assets/logo.png" alt="" width="48" height="48" align="absmiddle"> Shahrazad (شهرزاد)
 
 An AI-based spoken Modern Standard Arabic tutor that runs on your own computer, or in the cloud if your computer can't run the models. You talk to it, it corrects your mistakes gently, and it replies aloud with fully vowelled Arabic so you can hear and read the correct case endings.
 
@@ -11,7 +11,7 @@ The tutor and its voice are AI models, not a human teacher, so its Arabic can oc
 
 Ask it to discuss the latest news from a named outlet or a topic, or paste a YouTube link with Arabic captions, and it will discuss that subject with you. Searches go to the internet; when all three parts run locally, everything else stays on your machine.
 
-Without a suitable GPU, any of the three parts can run in the cloud through one [OpenRouter](https://openrouter.ai) key instead: Claude Haiku 5.5 teaches, Voxtral Mini Transcribe 3 hears, and Grok Voice speaks. A full cloud setup costs roughly $0.30–0.50 per hour of practice. See [docs/CLOUD.md](docs/CLOUD.md).
+Without a suitable GPU, any of the three parts can run in the cloud through one [OpenRouter](https://openrouter.ai) key instead: the same Gemma 4 model teaches, so the tutor behaves exactly as it does locally, Voxtral Mini Transcribe 3 hears, and Grok Voice speaks. A full cloud setup costs roughly $0.35–0.70 per hour of practice. See [docs/CLOUD.md](docs/CLOUD.md).
 
 It takes about 5 seconds from when you stop speaking to when you hear the reply, measured on two RTX 3060 12 GB cards. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how it works and [docs/ROADMAP.md](docs/ROADMAP.md) for what's next.
 
@@ -71,8 +71,6 @@ Open `http://localhost:8791`, allow the microphone, then hold the button or the 
 Browsers only allow the microphone on `localhost` or HTTPS. `./install.sh --lan` sets up HTTPS so other devices can open the tutor at `https://<server-address>:8791`; accept the browser's warning about the self-signed certificate. An SSH tunnel to `localhost:8791` also works.
 
 The server has no login, so anyone who can reach that address can use the tutor. Keep it on a network you trust. With any part in the cloud, they would also be spending your OpenRouter credit.
-
-With hearing in the cloud, your words appear when you let go of the button, rather than while you speak.
 
 ## Configuration
 

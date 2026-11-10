@@ -207,8 +207,8 @@ Each of the three parts (brain, hearing, voice) is set to `local` or `cloud` in 
 
 | Part | Local path | Cloud path (OpenRouter) |
 |---|---|---|
-| Brain | `http://127.0.0.1:18099/v1/chat/completions` | `/api/v1/chat/completions`, Claude Haiku 5.5. Requests go through `llm_body()`, which drops llama.cpp fields and sampling, names the model, and sets thinking to none, or to low for grammar checks |
-| Hearing | Voxtral WebSocket, streamed, with live captions and the 55 s session rollover | The turn's audio is kept in memory and sent as one WAV file to `/api/v1/audio/transcriptions` when the button is released |
+| Brain | `http://127.0.0.1:18099/v1/chat/completions` | `/api/v1/chat/completions`, the same Gemma 4 26B-A4B, limited to providers that return valid structured output. `llm_body()` only drops llama-server's own fields and names the model and providers, so the tutor behaves as it does locally |
+| Hearing | Voxtral WebSocket, streamed, with live captions and the 55 s session rollover | `CloudEar` cuts the turn into segments at pauses. Each finished segment is transcribed once at `/api/v1/audio/transcriptions`; the unfinished one is re-transcribed every 1.5 s for live captions |
 | Voice | `POST /synth` on `spark_service.py`, WAV | `/api/v1/audio/speech`, Grok Voice Ara, MP3. The browser's `decodeAudioData` plays either |
 
 `scripts/start.sh` starts only the local processes that are needed. `scripts/configure.py` plans GPU placement for the local parts only, and when they don't fit it names the fewest parts to move, in this order: hearing first (the most GPU memory for little cost), then the brain, then the voice. `install.sh` skips the environments, llama.cpp build and model downloads that cloud parts don't need. Measurements and costs are in [CLOUD.md](CLOUD.md).
@@ -265,7 +265,6 @@ The tutor needs both GPUs, so other GPU workloads have to be stopped first.
 ## Current limits
 
 - The tutor is push-to-talk, not full duplex.
-- With hearing in the cloud there are no live captions: the learner's words appear when the button is released.
 - Explanations in other languages are text only.
 - Voxtral sometimes corrects a learner's mistake while transcribing, which hides it from the tutor. This has been seen once on synthetic speech and has not been measured on real learners.
 - About 1 word in 50 can still get a wrong ending from Gemma's vowelling, and Spark reads what it is given.

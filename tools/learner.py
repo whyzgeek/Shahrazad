@@ -99,7 +99,7 @@ async def find_errors(text, last_tutor, http, llm_url, source, practising=()):
         user += "\n\nReturn an empty correct_uses list."
     body = {"messages": [{"role": "system", "content": PROMPT}, {"role": "user", "content": user}], "max_tokens": 500, "temperature": 0, "id_slot": 1,
             "chat_template_kwargs": {"enable_thinking": False}, "response_format": {"type": "json_schema", "json_schema": {"schema": SCHEMA}}}
-    r = await http.post(llm_url, json=providers.llm_body(body, think=True), headers=providers.LLM_HEADERS, timeout=90)
+    r = await http.post(llm_url, json=providers.llm_body(body), headers=providers.LLM_HEADERS, timeout=90)
     r.raise_for_status()
     data = json.loads(r.json()["choices"][0]["message"]["content"])
     errors = clean_errors(text, data["errors"], source)
@@ -115,7 +115,7 @@ async def check_target(text, concept, http, llm_url):
     ask = f"An Arabic learner is practising this rule: {card['rule']}\nThe learner said: {text}\nDid they use this structure at all, and if so was it correct? Ignore missing vowel marks, and ignore mistakes unrelated to this rule."
     schema = {"type": "object", "properties": {"used": {"type": "boolean"}, "correct": {"type": "boolean"}}, "required": ["used", "correct"]}
     body = {"messages": [{"role": "user", "content": ask}], "max_tokens": 40, "temperature": 0, "id_slot": 1, "chat_template_kwargs": {"enable_thinking": False}, "response_format": {"type": "json_schema", "json_schema": {"schema": schema}}}
-    r = await http.post(llm_url, json=providers.llm_body(body, think=True), headers=providers.LLM_HEADERS, timeout=60)
+    r = await http.post(llm_url, json=providers.llm_body(body), headers=providers.LLM_HEADERS, timeout=60)
     r.raise_for_status()
     d = json.loads(r.json()["choices"][0]["message"]["content"])
     return bool(d["correct"]) if d["used"] else None

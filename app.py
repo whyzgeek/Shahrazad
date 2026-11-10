@@ -35,6 +35,10 @@ MAX_TOOL_ROUNDS = 2
 ROLL_AFTER_S = 55      # start looking for a pause to begin a new Voxtral session (a session holds about 82 s)
 ROLL_FORCE_S = 72      # begin one regardless, before the session runs out
 CLOUD_MAX_TURN_S = 180  # cloud hearing keeps at most this much of one turn
+CLOUD_SEGMENT_MIN_S = 4      # cloud hearing cuts the turn at the next pause after this long...
+CLOUD_SEGMENT_MAX_S = 15     # ...and at a shorter pause, or regardless, by this long
+CLOUD_CAPTION_EVERY_S = 1.5  # how often the unfinished segment is re-transcribed for live captions
+CLOUD_CAPTIONS = os.environ.get("CLOUD_LIVE_CAPTIONS", "1").strip() not in ("0", "false", "no")
 MAX_VOICE_WORDS = 20   # Spark stops at 18 s, about 30 words, so longer sentences are sent in parts
 LOG_SUFFIX = learner.DB_PATH.stem.removeprefix("learner")   # a second copy with its own record keeps its own logs too
 DEBUG_LOG = learner.DB_PATH.with_name(f"debug_transcripts{LOG_SUFFIX}.jsonl") if os.environ.get("TUTOR_DEBUG_LOG", "").strip() in ("1", "true", "yes") else None
@@ -106,7 +110,7 @@ async def stream_turn(messages, http, tools, on_text):
     body = {"messages": messages, "stream": True, "max_tokens": 300, "id_slot": 0, "chat_template_kwargs": {"enable_thinking": False}, **SAMPLING}  # slot 0: the discussion, kept in cache
     if tools:
         body["tools"] = tools
-    text, calls, shown = "", {}, None
+    text, calls = "", {}
     async with http.stream("POST", LLM, json=providers.llm_body(body), headers=LH, timeout=120) as r:
         async for line in r.aiter_lines():
             if not line.startswith("data: ") or line == "data: [DONE]":
@@ -117,40 +121,13 @@ async def stream_turn(messages, http, tools, on_text):
             delta = d["choices"][0].get("delta", {})
             if delta.get("content"):
                 text += delta["content"]
-                visible = spoken_part(text)
-                if visible and visible != shown:
-                    shown = visible
-                    await on_text(visible)
+                await on_text(text)
             for c in delta.get("tool_calls") or []:
                 cur = calls.setdefault(c.get("index", 0), {"id": c.get("id") or f"call_{c.get('index', 0)}", "name": "", "args": ""})
                 f = c.get("function") or {}
                 cur["name"] += f.get("name") or ""
                 cur["args"] += f.get("arguments") or ""
-    if calls:
-        return spoken_part(text) or "", [calls[i] for i in sorted(calls)]   # English before a tool call is reasoning, not a reply
-    if spoken_part(text) is None and text.strip():
-        if REASONING.search(text):
-            return "", []         # only reasoning came back; better silence than reading it out
-        await on_text(text)   # the whole reply is in English, as when the learner asks for an explanation in English
-        return text, []
-    return spoken_part(text) or "", []
-
-
-REASONING = re.compile(r"\b(the learner|learner's|the tutor|private note|guidance|I should|I need|I'll|I will|I must|Let me|So I|my reply)\b", re.I)
-
-
-def spoken_part(text):
-    """The reply without any English reasoning paragraphs the model wrote before it (cloud models sometimes write out
-    their grammar check or plan). None while the opening English paragraph is still arriving, so it isn't flashed up.
-    English written to the learner, such as an explanation they asked for, is kept."""
-    parts = text.split("\n\n")
-    while parts and re.match(r"\s*[\"'(]*[A-Za-z]", parts[0]):
-        if len(parts) == 1:
-            return None
-        if not REASONING.search(parts[0]):
-            break
-        parts.pop(0)
-    return "\n\n".join(parts).lstrip()
+    return text, [calls[i] for i in sorted(calls)]
 
 
 def split_long(text, limit=MAX_VOICE_WORDS):
@@ -270,6 +247,72 @@ async def vowelize(plain, http):
     return fix_initial_sukun(text)
 
 
+class CloudEar:
+    """Cloud hearing with live captions. The cloud service only transcribes whole clips, so the turn is cut into
+    segments at natural pauses: each finished segment is transcribed once, and the unfinished one is re-transcribed
+    every CLOUD_CAPTION_EVERY_S for the caption. On release only the last segment is left to do."""
+
+    def __init__(self, http, send):
+        self.http, self.send = http, send
+        self.pcm, self.segments, self.caption = bytearray(), [], ""
+        self.level, self.quiet, self.total, self.caption_task, self.caption_at = 0.0, 0, 0, None, time.time()
+        self.finished = False
+
+    def add(self, pcm):
+        if self.total >= CLOUD_MAX_TURN_S * 32000:
+            return
+        self.pcm.extend(pcm); self.total += len(pcm)
+        a = array.array("h", pcm)
+        rms = (sum(x * x for x in a[::4]) / max(len(a) // 4, 1)) ** 0.5
+        self.level = max(self.level * 0.995, rms)
+        self.quiet = self.quiet + 1 if rms < 0.12 * self.level else 0
+        seconds = len(self.pcm) / 32000
+        if (seconds >= CLOUD_SEGMENT_MIN_S and self.quiet >= 4) or (seconds >= CLOUD_SEGMENT_MAX_S and self.quiet >= 1) or seconds >= CLOUD_SEGMENT_MAX_S + 5:
+            self.close()
+        elif CLOUD_CAPTIONS and seconds >= 1 and time.time() - self.caption_at >= CLOUD_CAPTION_EVERY_S and not (self.caption_task and not self.caption_task.done()):
+            self.caption_at = time.time()
+            self.caption_task = asyncio.create_task(self.update_caption(bytes(self.pcm), len(self.segments)))
+
+    def close(self):
+        if len(self.pcm) > 32000 * 0.3:   # under 0.3 s is a click, not speech
+            task = asyncio.create_task(providers.transcribe(self.http, bytes(self.pcm)))
+            task.add_done_callback(lambda _: CLOUD_CAPTIONS and asyncio.ensure_future(self.show()))
+            self.segments.append(task)
+        self.pcm, self.quiet, self.caption = bytearray(), 0, ""
+
+    async def update_caption(self, pcm, index):
+        try:
+            text = await providers.transcribe(self.http, pcm)
+        except Exception:
+            return
+        if index == len(self.segments):   # still the unfinished segment
+            self.caption = text
+            await self.show()
+
+    def known(self):
+        return [t.result() for t in self.segments if t.done() and not t.cancelled() and t.exception() is None]
+
+    async def show(self):
+        if self.finished:
+            return   # the final text has been sent; a late caption mustn't replace it
+        try:
+            await self.send(type="partial", text=(" ".join(self.known() + [self.caption]).strip() or "…") + " …")
+        except Exception:
+            pass   # the connection may have closed
+
+    async def finish(self):
+        """The whole turn's text, in order. Raises if every segment failed."""
+        self.finished = True
+        self.close()
+        if not self.segments:
+            return ""
+        results = await asyncio.wait_for(asyncio.gather(*self.segments, return_exceptions=True), 60)
+        texts = [r for r in results if isinstance(r, str)]
+        if not texts and results:
+            raise results[0]
+        return " ".join(t for t in texts if t).strip()
+
+
 learner_default_title = "New conversation"
 
 
@@ -278,7 +321,7 @@ class Session:
         self.ws, self.http = ws, http
         self.history = []
         self.vox = self.vox_rx = self.reply = self.final = self.roll_task = None
-        self.heard_pcm = None   # cloud hearing: the current turn's audio
+        self.ear = None   # cloud hearing for the current turn
         self.parts, self.pending, self.rolling, self.samples, self.level, self.quiet = [], [], False, 0, 0.0, 0
         self.gen = 0
         self.ctx = Context(registry=REGISTRY, http=http)
@@ -465,7 +508,7 @@ class Session:
         await self.close_vox()
         self.parts, self.pending, self.rolling, self.samples, self.level, self.quiet = [], [], False, 0, 0.0, 0
         if providers.HEARING == "cloud":
-            self.heard_pcm = bytearray()   # sent as one clip when the learner lets go
+            self.ear = CloudEar(self.http, self.send)
             await self.send(type="partial", text="…")
         else:
             await self.open_vox()
@@ -510,9 +553,8 @@ class Session:
         self.samples += len(pcm) // 2
 
     async def audio(self, pcm):
-        if self.heard_pcm is not None:
-            if len(self.heard_pcm) < CLOUD_MAX_TURN_S * 32000:
-                self.heard_pcm.extend(pcm)
+        if self.ear:
+            self.ear.add(pcm)
             return
         if self.rolling:
             self.pending.append(pcm)
@@ -557,16 +599,13 @@ class Session:
 
     async def stop_talk(self):
         t_end = time.time()
-        if self.heard_pcm is not None:
-            pcm, self.heard_pcm = bytes(self.heard_pcm), None
-            heard = ""
-            if len(pcm) > 16000 * 2 * 0.3:   # under 0.3 s is a click, not speech
-                await self.send(type="status", text="Listening…")
-                try:
-                    heard = await providers.transcribe(self.http, pcm)
-                except Exception as e:
-                    await self.send(type="error", text=f"Speech recognition failed ({type(e).__name__}). Please try again.")
-                    return
+        if self.ear:
+            ear, self.ear = self.ear, None
+            try:
+                heard = await ear.finish()
+            except Exception as e:
+                await self.send(type="error", text=f"Speech recognition failed ({type(e).__name__}). Please try again.")
+                return
             await self.send(type="final", text=heard)
             if heard:
                 self.reply = asyncio.create_task(self.respond(heard, t_end, "voice"))
@@ -676,11 +715,7 @@ class Session:
                     notes.append("The learner has already met these rules: " + " ".join(seen) + " If their last sentence is correct, don't correct it or repeat it back. " + learner.HINT_STYLE[band] + " Correct other kinds of error as usual. When it fits, ask something whose answer would make them use one of these rules.")
                 if notes:
                     # At the very end of the prompt, so everything before it stays in Gemma's cache.
-                    if providers.BRAIN == "cloud":
-                        # Claude treats text added to the learner's message as an injected instruction and remarks on it, so it gets its own system message.
-                        msgs.append({"role": "system", "content": "Guidance for this reply, from the tutoring app. The learner can't see it, so never mention it. " + " ".join(notes)})
-                    else:
-                        msgs[-1] = {**msgs[-1], "content": msgs[-1]["content"] + "\n\n[Private note to the tutor, not from the learner. Never correct it or mention it. " + " ".join(notes) + "]"}
+                    msgs[-1] = {**msgs[-1], "content": msgs[-1]["content"] + "\n\n[Private note to the tutor, not from the learner. Never correct it or mention it. " + " ".join(notes) + "]"}
                 text, calls = await stream_turn(msgs, self.http, self.tool_schemas() if round_no < MAX_TOOL_ROUNDS else None, on_text)
                 if not calls:
                     break

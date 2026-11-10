@@ -23,36 +23,36 @@ if "cloud" in (BRAIN, HEARING, VOICE) and not KEY:
     raise SystemExit("A part is set to cloud, so OPENROUTER_API_KEY must be set in .env.")
 HEADERS = {"Authorization": f"Bearer {KEY}", "X-Title": "Shahrazad"} if KEY else {}
 
-# Measured choices (docs/CLOUD.md). Override only to experiment: other models haven't been tuned for.
-BRAIN_MODEL = os.environ.get("CLOUD_BRAIN_MODEL", "anthropic/claude-haiku-5.5")
+# Measured choices (docs/CLOUD.md). The cloud brain is the same Gemma 4 model as the local one, so the tutor
+# behaves the same either way and the prompts tuned on it apply unchanged.
+BRAIN_MODEL = os.environ.get("CLOUD_BRAIN_MODEL", "google/gemma-4-26b-a4b-it")
 HEARING_MODEL = os.environ.get("CLOUD_HEARING_MODEL", "mistralai/voxtral-mini-transcribe-3-0")
 VOICE_MODEL = os.environ.get("CLOUD_VOICE_MODEL", "x-ai/grok-voice-tts-1.0")
 VOICE_NAME = os.environ.get("CLOUD_VOICE_NAME", "ara")
+# Gemma is served by many providers, and some return invalid structured output, which the grammar checks need
+# (in November 2026: Cloudflare, DekaLLM, Io Net, and NextBit about 1 call in 3). So only these, tested on the
+# 29-sentence error set with no failed calls, in order of how many errors they caught.
+BRAIN_PROVIDERS = [p.strip() for p in os.environ.get("CLOUD_BRAIN_PROVIDERS", "Venice,PrimeIntellect,DeepInfra").split(",") if p.strip()]
+BRAIN_ROUTING = {"order": BRAIN_PROVIDERS, "allow_fallbacks": False, "require_parameters": True}
 
 LLM_URL = f"{CLOUD}/chat/completions" if BRAIN == "cloud" else f"http://127.0.0.1:{os.environ.get('GEMMA_PORT', '18099')}/v1/chat/completions"
 LLM_HEADERS = HEADERS if BRAIN == "cloud" else {}
 VOX_URL = f"ws://127.0.0.1:{os.environ.get('VOXTRAL_PORT', '18098')}/v1/realtime"
 SPARK_URL = f"http://127.0.0.1:{os.environ.get('SPARK_PORT', '18096')}/synth"
-LOCAL_ONLY = ("id_slot", "chat_template_kwargs", "top_k", "temperature", "top_p", "cache_prompt")
+LLAMA_ONLY = ("id_slot", "chat_template_kwargs", "cache_prompt")
 
 
-def llm_body(body, think=False):
-    """Turn a llama-server request into one for the cloud brain. Local requests pass through unchanged.
-
-    think=True gives the model a little reasoning, which is worth it for the grammar checks
-    (17 of 20 errors caught, against 14 without), while replies and vowelling stay fast without it.
-    """
+def llm_body(body):
+    """The same request for the cloud brain: llama-server's own fields removed, the model named. Thinking stays off,
+    as it is locally. Local requests pass through unchanged."""
     if BRAIN != "cloud":
         return body
-    b = {k: v for k, v in body.items() if k not in LOCAL_ONLY}  # current Claude models only accept their default sampling
+    b = {k: v for k, v in body.items() if k not in LLAMA_ONLY}
     b["model"] = BRAIN_MODEL
-    b["reasoning"] = {"effort": "low" if think else "none", "exclude": True}
-    if think:
-        b["max_tokens"] = b.get("max_tokens", 300) + 1500   # the reasoning counts against max_tokens
+    b["provider"] = BRAIN_ROUTING
     rf = b.get("response_format")
     if rf and rf.get("type") == "json_schema":
-        b["response_format"] = {"type": "json_schema", "json_schema": {"name": "out", "strict": True, **rf["json_schema"]}}
-        b["provider"] = {"require_parameters": True}
+        b["response_format"] = {"type": "json_schema", "json_schema": {"name": "out", **rf["json_schema"]}}
     return b
 
 
