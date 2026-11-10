@@ -4,6 +4,10 @@ An AI-based spoken Modern Standard Arabic tutor that runs on your own computer, 
 
 The tutor and its voice are AI models, not a human teacher, so its Arabic can occasionally be wrong.
 
+[![Watch the demo: a learner speaks, gets corrected with «نقول», and discusses the news (2 min 43 s, with sound)](assets/demo-thumbnail.png)](https://github.com/whyzgeek/Shahrazad/raw/main/assets/demo.mp4)
+
+*Watch the demo (2:43, with sound): a learner speaks, is corrected with «نقول», opens a grammar lesson, and discusses a news story. Recorded on the local setup; the student is a synthetic voice and the waits are shortened.*
+
 - **Hearing:** Voxtral Mini 4B Realtime Arabic
 - **Teaching:** Gemma 4 26B-A4B
 - **Tashkeel:** Gemma 4 adds full vowel marks before each sentence is spoken
