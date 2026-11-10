@@ -1,6 +1,6 @@
 # Shahrazad architecture
 
-Shahrazad is an AI-based speaking tutor. It holds a spoken conversation in Modern Standard Arabic (MSA), corrects the learner's mistakes, and shows and speaks fully vowelled Arabic. All of its AI models run locally on one machine.
+Shahrazad is an AI-based speaking tutor. It holds a spoken conversation in Modern Standard Arabic (MSA), corrects the learner's mistakes, and shows and speaks fully vowelled Arabic. Its AI models run locally on one machine, or any of the three parts can run in the cloud instead (see [Cloud parts](#cloud-parts) and [CLOUD.md](CLOUD.md)).
 
 ## At a glance
 
@@ -177,6 +177,8 @@ The frontend is one static file, `index.html`, with no build step or external li
 - **Secure context:** browsers only allow the microphone on HTTPS or `localhost`. The page is reached through a self-signed HTTPS address on the local network, or an SSH tunnel to `localhost:8791`.
 - **Controls:** hold the button or the space bar to talk, with a 5-minute limit per turn. A text box allows typing instead, and "New conversation" clears the history.
 - **Display:** each tutor message shows the reply, then the vowelled text the voice received, then the time to first audio.
+- **Exchanges and order:** each exchange (what the learner said, any article or video it opened, and the reply) is one numbered block, #1, #2 and so on, numbered when the server saves it. Each correction card shows the number of the exchange it came from; clicking the number scrolls to that exchange and highlights it. The conversation and the corrections always share one order: newest at the bottom (the default) or at the top. `TUTOR_NEWEST=top` in `.env` sets the default, and the button at the top right changes it for that browser, which remembers the choice.
+- **Auto-scroll:** both panes follow new content, including height changes such as the Arabic font loading. Scrolling away to read earlier messages pauses that pane; scrolling back to the newest end, or starting a new exchange, resumes it.
 - **Playback:** WAV sentences are queued with the Web Audio API so they play back to back. Each tutor message has a Replay button, which speaks it again from its saved vowelled text.
 
 ### WebSocket protocol (`/ws`)
@@ -194,10 +196,22 @@ The frontend is one static file, `index.html`, with no build step or external li
 | Server to browser | `tashkeel` | Vowelled text spoken so far |
 | Server to browser | `text_only` | A sentence was shown but not spoken |
 | Server to browser | `timing` | Stage timings for the turn |
-| Server to browser | `turn` | The saved turn's id, used by Replay |
+| Server to browser | `turn` | The saved turn's id, used by Replay, and its number in the session (`n`) |
 | Browser to server | `{"type":"replay","turn":id}` | Speak a saved reply again |
 | Server to browser | `error` | Error message for the status line |
 | Server to browser | Binary | One WAV sentence |
+
+## Cloud parts
+
+Each of the three parts (brain, hearing, voice) is set to `local` or `cloud` in `.env`, independently. `tools/providers.py` is the only module that knows the difference; everything else builds the same llama.cpp-style requests as before.
+
+| Part | Local path | Cloud path (OpenRouter) |
+|---|---|---|
+| Brain | `http://127.0.0.1:18099/v1/chat/completions` | `/api/v1/chat/completions`, Claude Haiku 5.5. Requests go through `llm_body()`, which drops llama.cpp fields and sampling, names the model, and sets thinking to none, or to low for grammar checks |
+| Hearing | Voxtral WebSocket, streamed, with live captions and the 55 s session rollover | The turn's audio is kept in memory and sent as one WAV file to `/api/v1/audio/transcriptions` when the button is released |
+| Voice | `POST /synth` on `spark_service.py`, WAV | `/api/v1/audio/speech`, Grok Voice Ara, MP3. The browser's `decodeAudioData` plays either |
+
+`scripts/start.sh` starts only the local processes that are needed. `scripts/configure.py` plans GPU placement for the local parts only, and when they don't fit it names the fewest parts to move, in this order: hearing first (the most GPU memory for little cost), then the brain, then the voice. `install.sh` skips the environments, llama.cpp build and model downloads that cloud parts don't need. Measurements and costs are in [CLOUD.md](CLOUD.md).
 
 ## Hardware and performance
 
@@ -251,6 +265,7 @@ The tutor needs both GPUs, so other GPU workloads have to be stopped first.
 ## Current limits
 
 - The tutor is push-to-talk, not full duplex.
+- With hearing in the cloud there are no live captions: the learner's words appear when the button is released.
 - Explanations in other languages are text only.
 - Voxtral sometimes corrects a learner's mistake while transcribing, which hides it from the tutor. This has been seen once on synthetic speech and has not been measured on real learners.
 - About 1 word in 50 can still get a wrong ending from Gemma's vowelling, and Spark reads what it is given.

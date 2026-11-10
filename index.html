@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<!doctype html><html lang="en" data-newest="bottom"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Shahrazad</title>
 <link rel="icon" href="assets/favicon.ico" sizes="16x16 32x32 48x48">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
@@ -19,9 +19,12 @@ footer{padding:12px 16px 18px;border-top:1px solid var(--line);max-width:760px;w
 #talk{width:100%;padding:18px;font-size:18px;border:0;border-radius:10px;background:var(--acc);color:#fff;touch-action:none;user-select:none}#talk.on{background:var(--acc2)}#talk:disabled{opacity:.5}
 form{display:flex;gap:8px;margin-top:10px}#txt{flex:1;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);min-width:0}form button{padding:8px 14px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg)}
 #st{font-size:13px;color:var(--mut);margin-top:6px;min-height:1.2em}
+#log,#notes{overflow-anchor:none}.turn{border-radius:12px;transition:background .4s}.turn.flash{background:var(--me)}.num{font-size:11px;color:var(--mut);margin:14px 2px 0;letter-spacing:.03em}
+.note .tn{float:right;margin-left:8px;color:var(--acc);text-decoration:none;font-weight:600}
+#order{margin-left:auto;flex:none;background:none;border:1px solid var(--line);border-radius:6px;color:var(--mut);font-size:12px;padding:3px 8px}
 </style>
 <nav id="side"><div class="brand"><img src="assets/logo.png" alt="" width="36" height="36"><h1>Shahrazad</h1></div><button id="newc">+ New conversation</button><div id="slist"></div></nav><div id="shade"></div>
-<div id="main"><header><button id="menu" aria-label="Conversations">☰</button><img class="logo" src="assets/logo.png" alt="" width="28" height="28"><h2 id="ctitle" dir="auto"></h2></header>
+<div id="main"><header><button id="menu" aria-label="Conversations">☰</button><img class="logo" src="assets/logo.png" alt="" width="28" height="28"><h2 id="ctitle" dir="auto"></h2><button id="order" title="Where new messages and corrections appear"></button></header>
 <div id="wrap"><div id="log"></div><aside id="notes" hidden><h2>Corrections</h2><div id="notelist"></div></aside></div>
 <footer><button id="talk" disabled>Connecting…</button>
 <form id="f"><input id="txt" dir="auto" placeholder="Type here, or paste a YouTube link" autocomplete="off"><button>Send</button></form><div id="st"></div></footer></div>
@@ -29,11 +32,35 @@ form{display:flex;gap:8px;margin-top:10px}#txt{flex:1;font:inherit;padding:8px 1
 const $=i=>document.getElementById(i),log=$('log'),talk=$('talk'),st=$('st');
 const IDLE='Hold to talk (or hold the space bar)';
 let ws,me,bot,talking=false,mic,node,ctx,play,nextAt=0,sources=[],limit;
+// Conversation and corrections share one order: newest at the bottom (chat style) or at the top.
+// The server's default comes from TUTOR_NEWEST in .env; the button in the header changes it for this browser.
+const ORDER_KEY='shahrazad-newest';
+let newest=(()=>{try{return localStorage.getItem(ORDER_KEY)}catch(e){return null}})()||document.documentElement.dataset.newest||'bottom';
+let turnEl=null;const turnById={};
+const place=(parent,el)=>newest==='top'?parent.prepend(el):parent.append(el);
+const toNewest=el=>{el.scrollTop=newest==='top'?0:el.scrollHeight;el._mine=el.scrollTop};
+// Both panes follow new content. Scrolling away to read pauses that pane; scrolling back to the newest end, or starting a new exchange, resumes it.
+const follow=new Map();
+const atNewest=el=>newest==='top'?el.scrollTop<80:el.scrollHeight-el.scrollTop-el.clientHeight<80;
+[log,$('notes')].forEach(el=>{follow.set(el,true);el.addEventListener('scroll',()=>{if(Math.abs(el.scrollTop-el._mine)>2)follow.set(el,atNewest(el))},{passive:true});  // ignore the page's own scrolling
+ const ro=new ResizeObserver(()=>{if(follow.get(el))toNewest(el)});   // heights also change without new content, e.g. when the Arabic font finishes loading
+ new MutationObserver(ms=>{ms.forEach(m=>m.addedNodes.forEach(n=>{if(n.nodeType===1&&n.parentNode===(el===log?log:$('notelist')))ro.observe(n)}));if(follow.get(el))toNewest(el)}).observe(el,{subtree:true,childList:true,characterData:true})});
+const followAll=()=>[log,$('notes')].forEach(el=>{follow.set(el,true);toNewest(el)});
+function showOrder(){$('order').textContent=newest==='top'?'Newest first ↑':'Newest last ↓'}
+$('order').onclick=()=>{newest=newest==='top'?'bottom':'top';try{localStorage.setItem(ORDER_KEY,newest)}catch(e){}
+ [log,$('notelist')].forEach(el=>[...el.children].reverse().forEach(c=>el.append(c)));showOrder();followAll()};
+showOrder();
+// One exchange: what the learner said, any article or video it opened, and the tutor's reply. Numbered once the server saves it.
+function newTurn(){const t=document.createElement('section');t.className='turn';const h=document.createElement('div');h.className='num';t.append(h);place(log,t);turnEl=t;followAll();return t}
+function numberTurn(t,id,n){t.id='turn-'+id;t.querySelector('.num').textContent='#'+n;turnById[id]={el:t,n};
+ document.querySelectorAll('.note[data-turn="'+id+'"] .tn').forEach(x=>x.textContent='#'+n)}
+function jump(id){const t=turnById[id];if(!t)return;t.el.scrollIntoView({block:'center',behavior:'smooth'});t.el.classList.add('flash');setTimeout(()=>t.el.classList.remove('flash'),1600)}
 function bubble(cls,who){const d=document.createElement('div');d.className='m '+cls;
  const w=document.createElement('div');w.className='who';w.textContent=who;
- const b=document.createElement('div');b.className='ar';b.dir='auto';d.append(w,b);log.append(d);log.scrollTop=log.scrollHeight;return d}
-const setBody=(d,t)=>{d.querySelector('.ar').textContent=t;log.scrollTop=log.scrollHeight};
-function addNote(e){$('notes').hidden=false;const n=document.createElement('div');n.className='note';
+ const b=document.createElement('div');b.className='ar';b.dir='auto';d.append(w,b);(turnEl||newTurn()).append(d);return d}
+const setBody=(d,t)=>{d.querySelector('.ar').textContent=t};
+function addNote(e){$('notes').hidden=false;const n=document.createElement('div');n.className='note';n.dataset.turn=e.turn??'';
+ const tn=document.createElement('a');tn.className='tn';tn.href='#';tn.title='Show this exchange';tn.textContent=turnById[e.turn]?'#'+turnById[e.turn].n:'';tn.onclick=ev=>{ev.preventDefault();jump(e.turn)};
  const f=document.createElement('div');f.className='fix';f.dir='rtl';const s=document.createElement('s');s.textContent=e.wrong;const b=document.createElement('b');b.textContent=e.right;f.append(s,' ← ',b);
  const c=document.createElement('div');c.className='c';c.textContent=e.concept;
  const r=document.createElement('div');r.dir='auto';r.textContent=e.reminder;
@@ -46,11 +73,12 @@ function addNote(e){$('notes').hidden=false;const n=document.createElement('div'
   n.insertBefore(box,more.parentNode);more.textContent='Hide'};
  const act=document.createElement('div');act.className='act';
  const x=document.createElement('button');x.textContent="That's not what I said";x.onclick=()=>{ws.send(JSON.stringify({type:'dismiss',id:e.id}));n.remove();if(!$('notelist').children.length)$('notes').hidden=true};
- act.append(more,x);n.append(f,c,r,act);$('notelist').prepend(n)}
+ act.append(more,x);n.append(tn,f,c,r,act);place($('notelist'),n)}
 function addReplay(el,id){if(el.querySelector('.replay'))return;const b=document.createElement('button');b.className='replay';b.textContent='▶ Replay';
  b.onclick=()=>{stopAudio();play=play||new AudioContext();play.resume();replayBtn=b;replayDone=false;b.classList.add('on');ws.send(JSON.stringify({type:'replay',turn:id}))};el.append(b)}
 function card(kind,title,url){const d=document.createElement('div');d.className='src';const b=document.createElement('b');b.textContent=kind+': ';d.append(b);
- if(/^https?:\/\//.test(url)){const l=document.createElement('a');l.href=url;l.target='_blank';l.rel='noopener noreferrer';l.textContent=title;d.append(l)}else d.append(title);log.append(d);log.scrollTop=log.scrollHeight}
+ if(/^https?:\/\//.test(url)){const l=document.createElement('a');l.href=url;l.target='_blank';l.rel='noopener noreferrer';l.textContent=title;d.append(l)}else d.append(title);
+ if(turnEl)turnEl.append(d);else place(log,d)}
 let replayBtn=null,replayDone=false,decoding=0;
 function endReplay(){if(replayBtn)replayBtn.classList.remove('on');replayBtn=null;replayDone=false}
 function checkReplay(){if(replayBtn&&replayDone&&decoding===0&&sources.length===0)endReplay()}
@@ -63,18 +91,21 @@ function connect(){ws=new WebSocket((location.protocol==='https:'?'wss://':'ws:/
  ws.onclose=()=>{talk.disabled=true;talk.textContent='Reconnecting…';setTimeout(connect,1500)};
  ws.onmessage=e=>{if(typeof e.data!=='string'){queue(e.data);return}const m=JSON.parse(e.data);
   if(m.type==='partial'){if(me)setBody(me,m.text)}
-  else if(m.type==='final'){if(me)setBody(me,m.text||'…');st.textContent=m.text?'Thinking…':''}
+  else if(m.type==='final'){if(me)setBody(me,m.text||'…');st.textContent=m.text?'Thinking…':'';
+   if(!m.text&&turnEl&&!turnEl.id){turnEl.remove();turnEl=me=null}}
   else if(m.type==='assistant'){if(!bot)bot=bubble('','Tutor');setBody(bot,m.text);st.textContent=''}
   else if(m.type==='status'){st.textContent=m.text}
   else if(m.type==='subject'){card(m.kind==='video'?'Video':'Article',m.title+(m.sections>1?' ('+m.section+'/'+m.sections+')':''),m.url);st.textContent=''}
   else if(m.type==='items'){m.items.forEach((it,i)=>card('Option '+(i+1),it.title,it.url));st.textContent=''}
-  else if(m.type==='turn'&&bot){addReplay(bot,m.id)}
+  else if(m.type==='turn'){if(bot)addReplay(bot,m.id);if(turnEl)numberTurn(turnEl,m.id,m.n)}
   else if(m.type==='replay_done'){replayDone=true;checkReplay()}
   else if(m.type==='errors'){m.errors.forEach(addNote)}
   else if(m.type==='sessions'){renderSessions(m)}
-  else if(m.type==='session'){stopAudio();me=bot=null;log.textContent='';$('notelist').textContent='';$('notes').hidden=true;st.textContent='';if(m.subject)card(m.subject.kind==='video'?'Video':'Article',m.subject.title,m.subject.url);m.turns.forEach(t=>{setBody(bubble('me','You'),t.said);const b=bubble('','Tutor');setBody(b,t.reply);if(t.id)addReplay(b,t.id)});m.errors.forEach(addNote);bot=null;me=null}
+  else if(m.type==='session'){stopAudio();me=bot=turnEl=null;log.textContent='';$('notelist').textContent='';$('notes').hidden=true;st.textContent='';if(m.subject)card(m.subject.kind==='video'?'Video':'Article',m.subject.title,m.subject.url);
+   m.turns.forEach((t,i)=>{newTurn();setBody(bubble('me','You'),t.said);const b=bubble('','Tutor');setBody(b,t.reply);if(t.id){addReplay(b,t.id);numberTurn(turnEl,t.id,i+1)}});
+   turnEl=null;m.errors.forEach(addNote);bot=null;me=null;followAll()}
   else if(m.type==='text_only'){st.textContent='Shown as text only: the Arabic voice can’t read that language.'}
-  else if(m.type==='tashkeel'&&bot){let t=bot.querySelector('.t');if(!t){t=document.createElement('div');t.className='ar t';t.dir='auto';bot.append(t)}t.textContent=m.text;log.scrollTop=log.scrollHeight}
+  else if(m.type==='tashkeel'&&bot){let t=bot.querySelector('.t');if(!t){t=document.createElement('div');t.className='ar t';t.dir='auto';bot.append(t)}t.textContent=m.text}
   else if(m.type==='timing'&&bot){const t=document.createElement('div');t.className='time';t.textContent='First audio '+(m.end_of_speech_to_first_audio_s??'–')+' s after you stopped';bot.append(t)}
   else if(m.type==='error'){st.textContent=m.text}}}
 const WORK=`class P extends AudioWorkletProcessor{constructor(){super();this.r=sampleRate/16000;this.a=0;this.n=0;this.p=0;this.b=new Int16Array(1280);this.i=0}
@@ -85,12 +116,12 @@ async function initMic(){if(mic)return;mic=await navigator.mediaDevices.getUserM
 async function down(){if(talking||talk.disabled)return;talking=true;
  try{await initMic();await ctx.resume()}catch(e){talking=false;st.textContent='Microphone unavailable. Open this page at http://localhost:8791 through the SSH tunnel and allow the mic.';return}
  if(!talking)return; // released during the permission prompt
- stopAudio();bot=null;me=bubble('me','You');talk.classList.add('on');talk.textContent='Listening… release when done';st.textContent='';ws.send(JSON.stringify({type:'start'}));limit=setTimeout(up,300000)}
+ stopAudio();bot=null;newTurn();me=bubble('me','You');talk.classList.add('on');talk.textContent='Listening… release when done';st.textContent='';ws.send(JSON.stringify({type:'start'}));limit=setTimeout(up,300000)}
 function up(){if(!talking)return;talking=false;clearTimeout(limit);talk.classList.remove('on');talk.textContent=IDLE;setTimeout(()=>ws.send(JSON.stringify({type:'stop'})),120)}
 talk.onpointerdown=e=>{e.preventDefault();talk.setPointerCapture(e.pointerId);down()};talk.onpointerup=up;talk.onpointercancel=up;
 addEventListener('keydown',e=>{if(e.code==='Space'&&!e.repeat&&document.activeElement!==$('txt')){e.preventDefault();down()}});
 addEventListener('keyup',e=>{if(e.code==='Space'&&document.activeElement!==$('txt')){e.preventDefault();up()}});
-$('f').onsubmit=e=>{e.preventDefault();const v=$('txt').value.trim();if(!v)return;$('txt').value='';stopAudio();bot=null;play=play||new AudioContext();play.resume();setBody(bubble('me','You'),v);ws.send(JSON.stringify({type:'text',text:v}))};
+$('f').onsubmit=e=>{e.preventDefault();const v=$('txt').value.trim();if(!v)return;$('txt').value='';stopAudio();bot=null;newTurn();play=play||new AudioContext();play.resume();setBody(bubble('me','You'),v);ws.send(JSON.stringify({type:'text',text:v}))};
 function dayLabel(ts){const d=new Date(ts*1000),now=new Date(),one=864e5,start=new Date(now.getFullYear(),now.getMonth(),now.getDate()).getTime();
  return ts*1000>=start?'Today':ts*1000>=start-one?'Yesterday':ts*1000>=start-6*one?'This week':d.toLocaleDateString(undefined,{month:'long',year:'numeric'})}
 function renderSessions(m){const L=$('slist');L.textContent='';let last='';

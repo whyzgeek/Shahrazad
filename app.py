@@ -1,6 +1,7 @@
 """Shahrazad: Arabic (MSA) speaking tutor, push-to-talk.
 
 Browser mic -> Voxtral (vLLM) -> Gemma 4 (llama-server) -> Spark voice (spark_service.py).
+Any of the three can run in the cloud instead, through one OpenRouter key: see tools/providers.py.
 Binds to localhost by default; there is no login, so don't expose it directly. Started by scripts/start.sh.
 """
 import array, asyncio, base64, dataclasses, difflib, json, os, re, time
@@ -12,14 +13,15 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from tools import learner, youtube
+from tools import providers
 from tools.registry import Context, Registry
 from tools.skills import load_skills
 from tools.subjects import Subject, match_source
 
 ROOT = Path(__file__).resolve().parent
-VOX = f"ws://127.0.0.1:{os.environ.get('VOXTRAL_PORT', '18098')}/v1/realtime"
-LLM = f"http://127.0.0.1:{os.environ.get('GEMMA_PORT', '18099')}/v1/chat/completions"
-SPARK = f"http://127.0.0.1:{os.environ.get('SPARK_PORT', '18096')}/synth"
+VOX = providers.VOX_URL
+LLM = providers.LLM_URL
+LH = providers.LLM_HEADERS
 HOST = os.environ.get("TUTOR_HOST", "127.0.0.1")
 PORT = int(os.environ.get("TUTOR_PORT", "8791"))
 
@@ -32,16 +34,19 @@ HISTORY_MESSAGES = 24
 MAX_TOOL_ROUNDS = 2
 ROLL_AFTER_S = 55      # start looking for a pause to begin a new Voxtral session (a session holds about 82 s)
 ROLL_FORCE_S = 72      # begin one regardless, before the session runs out
+CLOUD_MAX_TURN_S = 180  # cloud hearing keeps at most this much of one turn
 MAX_VOICE_WORDS = 20   # Spark stops at 18 s, about 30 words, so longer sentences are sent in parts
-DEBUG_LOG = learner.DB_PATH.with_name("debug_transcripts.jsonl") if os.environ.get("TUTOR_DEBUG_LOG", "").strip() in ("1", "true", "yes") else None
+LOG_SUFFIX = learner.DB_PATH.stem.removeprefix("learner")   # a second copy with its own record keeps its own logs too
+DEBUG_LOG = learner.DB_PATH.with_name(f"debug_transcripts{LOG_SUFFIX}.jsonl") if os.environ.get("TUTOR_DEBUG_LOG", "").strip() in ("1", "true", "yes") else None
 REVIEW_EVERY_TURNS = int(os.environ.get("TUTOR_REVIEW_EVERY_TURNS", "4"))   # at most one follow-up question this often
 REVIEW_AFTER_MISTAKE_TURNS = 3    # let a few turns pass before bringing a fresh mistake back
+NEWEST = "top" if os.environ.get("TUTOR_NEWEST", "bottom").strip().lower() == "top" else "bottom"   # where new messages and cards appear; each browser can change it
 REGISTRY = Registry(ROOT / "tools.yaml")
 LEARNER = learner.Learner()
 SKILLS = load_skills()
 FILLER_SEARCH = "لَحْظَةً، سَأَبْحَثُ عَنْ ذَلِكَ."
 FILLER_VIDEO = "لَحْظَةً، سَأَفْتَحُ الْفِيدْيُو."
-LOG = ROOT / "data/sessions_timing.jsonl"
+LOG = learner.DB_PATH.with_name(f"sessions_timing{LOG_SUFFIX}.jsonl")
 
 app = FastAPI()
 app.mount("/assets", StaticFiles(directory=ROOT / "assets"), name="assets")
@@ -86,7 +91,7 @@ def split_sentences(t):
 
 async def chat(messages, http, sampling=SAMPLING, max_tokens=300):
     body = {"messages": messages, "stream": True, "max_tokens": max_tokens, "id_slot": 1, "chat_template_kwargs": {"enable_thinking": False}, **sampling}  # slot 1: vowelling, so it doesn't evict the discussion
-    async with http.stream("POST", LLM, json=body, timeout=120) as r:
+    async with http.stream("POST", LLM, json=providers.llm_body(body), headers=LH, timeout=120) as r:
         async for line in r.aiter_lines():
             if line.startswith("data: ") and line != "data: [DONE]":
                 d = json.loads(line[6:])
@@ -101,8 +106,8 @@ async def stream_turn(messages, http, tools, on_text):
     body = {"messages": messages, "stream": True, "max_tokens": 300, "id_slot": 0, "chat_template_kwargs": {"enable_thinking": False}, **SAMPLING}  # slot 0: the discussion, kept in cache
     if tools:
         body["tools"] = tools
-    text, calls = "", {}
-    async with http.stream("POST", LLM, json=body, timeout=120) as r:
+    text, calls, shown = "", {}, None
+    async with http.stream("POST", LLM, json=providers.llm_body(body), headers=LH, timeout=120) as r:
         async for line in r.aiter_lines():
             if not line.startswith("data: ") or line == "data: [DONE]":
                 continue
@@ -112,13 +117,40 @@ async def stream_turn(messages, http, tools, on_text):
             delta = d["choices"][0].get("delta", {})
             if delta.get("content"):
                 text += delta["content"]
-                await on_text(text)
+                visible = spoken_part(text)
+                if visible and visible != shown:
+                    shown = visible
+                    await on_text(visible)
             for c in delta.get("tool_calls") or []:
                 cur = calls.setdefault(c.get("index", 0), {"id": c.get("id") or f"call_{c.get('index', 0)}", "name": "", "args": ""})
                 f = c.get("function") or {}
                 cur["name"] += f.get("name") or ""
                 cur["args"] += f.get("arguments") or ""
-    return text, [calls[i] for i in sorted(calls)]
+    if calls:
+        return spoken_part(text) or "", [calls[i] for i in sorted(calls)]   # English before a tool call is reasoning, not a reply
+    if spoken_part(text) is None and text.strip():
+        if REASONING.search(text):
+            return "", []         # only reasoning came back; better silence than reading it out
+        await on_text(text)   # the whole reply is in English, as when the learner asks for an explanation in English
+        return text, []
+    return spoken_part(text) or "", []
+
+
+REASONING = re.compile(r"\b(the learner|learner's|the tutor|private note|guidance|I should|I need|I'll|I will|I must|Let me|So I|my reply)\b", re.I)
+
+
+def spoken_part(text):
+    """The reply without any English reasoning paragraphs the model wrote before it (cloud models sometimes write out
+    their grammar check or plan). None while the opening English paragraph is still arriving, so it isn't flashed up.
+    English written to the learner, such as an explanation they asked for, is kept."""
+    parts = text.split("\n\n")
+    while parts and re.match(r"\s*[\"'(]*[A-Za-z]", parts[0]):
+        if len(parts) == 1:
+            return None
+        if not REASONING.search(parts[0]):
+            break
+        parts.pop(0)
+    return "\n\n".join(parts).lstrip()
 
 
 def split_long(text, limit=MAX_VOICE_WORDS):
@@ -168,7 +200,7 @@ async def vowel_words(sentence, words, http):
     schema = {"type": "object", "properties": {"words": {"type": "array", "items": {"type": "string"}, "minItems": len(words), "maxItems": len(words)}}, "required": ["words"]}
     ask = f"Add full Arabic vowel marks to each listed word, as it is used in this sentence. Keep every word exactly as written: don't change, add or remove any letter, even if the word looks wrong.\nSentence: {sentence}\nWords: {json.dumps(words, ensure_ascii=False)}"
     body = {"messages": [{"role": "user", "content": ask}], "max_tokens": 300, "temperature": 0, "id_slot": 1, "chat_template_kwargs": {"enable_thinking": False}, "response_format": {"type": "json_schema", "json_schema": {"schema": schema}}}
-    r = await http.post(LLM, json=body, timeout=60)
+    r = await http.post(LLM, json=providers.llm_body(body), headers=LH, timeout=60)
     r.raise_for_status()
     got = json.loads(r.json()["choices"][0]["message"]["content"])["words"]
     return [g if DIAC.sub("", g) == w else w for g, w in zip(got, words)]
@@ -192,7 +224,7 @@ async def make_title(subject_title, turns, http):
     lines = ([f"Subject: {subject_title}"] if subject_title else []) + [f"{t['role']}: {t['content'][:300]}" for t in turns[:6]]
     ask = "Write a short title of 2 to 5 English words that names what this Arabic lesson conversation is about. Return only the title, with no quotes.\n\n" + "\n".join(lines)
     body = {"messages": [{"role": "user", "content": ask}], "max_tokens": 24, "temperature": 0, "id_slot": 1, "chat_template_kwargs": {"enable_thinking": False}}
-    r = await http.post(LLM, json=body, timeout=60)
+    r = await http.post(LLM, json=providers.llm_body(body), headers=LH, timeout=60)
     r.raise_for_status()
     title = r.json()["choices"][0]["message"]["content"].strip().strip('"\'«»*#').splitlines()[0].strip()
     return title[:60] or None
@@ -246,6 +278,7 @@ class Session:
         self.ws, self.http = ws, http
         self.history = []
         self.vox = self.vox_rx = self.reply = self.final = self.roll_task = None
+        self.heard_pcm = None   # cloud hearing: the current turn's audio
         self.parts, self.pending, self.rolling, self.samples, self.level, self.quiet = [], [], False, 0, 0.0, 0
         self.gen = 0
         self.ctx = Context(registry=REGISTRY, http=http)
@@ -371,10 +404,9 @@ class Session:
         return REGISTRY.schemas(names)
 
     async def say(self, vowelled, gen):
-        r = await self.http.post(SPARK, json={"text": vowelled}, timeout=60)
-        r.raise_for_status()
+        audio = await providers.synth(self.http, vowelled)
         if gen == self.gen:
-            await self.ws.send_bytes(r.content)
+            await self.ws.send_bytes(audio)
 
     async def announce_subject(self):
         s = self.ctx.subject
@@ -432,7 +464,11 @@ class Session:
         await self.cancel_roll()
         await self.close_vox()
         self.parts, self.pending, self.rolling, self.samples, self.level, self.quiet = [], [], False, 0, 0.0, 0
-        await self.open_vox()
+        if providers.HEARING == "cloud":
+            self.heard_pcm = bytearray()   # sent as one clip when the learner lets go
+            await self.send(type="partial", text="…")
+        else:
+            await self.open_vox()
 
     async def cancel_roll(self):
         if self.roll_task and not self.roll_task.done():
@@ -474,6 +510,10 @@ class Session:
         self.samples += len(pcm) // 2
 
     async def audio(self, pcm):
+        if self.heard_pcm is not None:
+            if len(self.heard_pcm) < CLOUD_MAX_TURN_S * 32000:
+                self.heard_pcm.extend(pcm)
+            return
         if self.rolling:
             self.pending.append(pcm)
             return
@@ -517,6 +557,22 @@ class Session:
 
     async def stop_talk(self):
         t_end = time.time()
+        if self.heard_pcm is not None:
+            pcm, self.heard_pcm = bytes(self.heard_pcm), None
+            heard = ""
+            if len(pcm) > 16000 * 2 * 0.3:   # under 0.3 s is a click, not speech
+                await self.send(type="status", text="Listening…")
+                try:
+                    heard = await providers.transcribe(self.http, pcm)
+                except Exception as e:
+                    await self.send(type="error", text=f"Speech recognition failed ({type(e).__name__}). Please try again.")
+                    return
+            await self.send(type="final", text=heard)
+            if heard:
+                self.reply = asyncio.create_task(self.respond(heard, t_end, "voice"))
+            else:
+                await self.send(type="error", text="No speech was recognized. Please try again.")
+            return
         if self.roll_task:
             try:
                 await self.roll_task
@@ -571,11 +627,10 @@ class Session:
             parts = [await vowelize(clean_text(s), self.http) for s in split_sentences(row["reply"]) if speakable(s)]
         for sentence in parts:
             for part in split_long(sentence):
-                r = await self.http.post(SPARK, json={"text": part}, timeout=60)
-                r.raise_for_status()
+                audio = await providers.synth(self.http, part)
                 if gen != self.gen:
                     return
-                await self.ws.send_bytes(r.content)
+                await self.ws.send_bytes(audio)
         await self.send(type="replay_done")
 
     async def respond(self, user, t_end, source="typed"):
@@ -621,7 +676,11 @@ class Session:
                     notes.append("The learner has already met these rules: " + " ".join(seen) + " If their last sentence is correct, don't correct it or repeat it back. " + learner.HINT_STYLE[band] + " Correct other kinds of error as usual. When it fits, ask something whose answer would make them use one of these rules.")
                 if notes:
                     # At the very end of the prompt, so everything before it stays in Gemma's cache.
-                    msgs[-1] = {**msgs[-1], "content": msgs[-1]["content"] + "\n\n[Private note to the tutor, not from the learner. Never correct it or mention it. " + " ".join(notes) + "]"}
+                    if providers.BRAIN == "cloud":
+                        # Claude treats text added to the learner's message as an injected instruction and remarks on it, so it gets its own system message.
+                        msgs.append({"role": "system", "content": "Guidance for this reply, from the tutoring app. The learner can't see it, so never mention it. " + " ".join(notes)})
+                    else:
+                        msgs[-1] = {**msgs[-1], "content": msgs[-1]["content"] + "\n\n[Private note to the tutor, not from the learner. Never correct it or mention it. " + " ".join(notes) + "]"}
                 text, calls = await stream_turn(msgs, self.http, self.tool_schemas() if round_no < MAX_TOOL_ROUNDS else None, on_text)
                 if not calls:
                     break
@@ -647,11 +706,10 @@ class Session:
                     await self.send(type="assistant", text=full)
                 await self.send(type="tashkeel", text=" ".join(shown))  # exactly what the voice is given
                 for part in split_long(vowelled):
-                    r = await self.http.post(SPARK, json={"text": part}, timeout=60)
-                    r.raise_for_status()
+                    audio = await providers.synth(self.http, part)
                     if gen != self.gen:
                         return
-                    await self.ws.send_bytes(r.content)
+                    await self.ws.send_bytes(audio)
                     if "end_of_speech_to_first_audio_s" not in t:
                         t.update(first_vowel_s=round(t1 - t0, 3), first_voice_s=round(time.time() - t1, 3), end_of_speech_to_first_audio_s=round(time.time() - t_end, 3))
         except asyncio.CancelledError:
@@ -660,7 +718,7 @@ class Session:
         last_tutor = next((m["content"] for m in reversed(self.history[:-1]) if m["role"] == "assistant"), "")
         self.history.append({"role": "assistant", "content": full})
         turn_id = LEARNER.add_turn(self.session_id, source, user, full, self.ctx.subject.title if self.ctx.subject else None, shown)
-        await self.send(type="turn", id=turn_id)
+        await self.send(type="turn", id=turn_id, n=LEARNER.turn_count(self.session_id))
         if not youtube.find_video(user) and ARABIC.search(user):
             self.analysis.append(asyncio.create_task(self.analyze(turn_id, self.turn_no, user, last_tutor, source, target)))
         subject = self.ctx.subject
@@ -699,7 +757,7 @@ class Session:
         weak_note = f" The learner has been making mistakes with: {', '.join(weak)}. Where it fits naturally, write questions whose answer would make them use these structures." if weak else ""
         msgs = [{"role": "system", "content": self.system_prompt()}] + self.history + [{"role": "user", "content": QUESTION_PROMPT + learner.QUESTION_STYLE[LEARNER.band()] + weak_note}]
         body = {"messages": msgs, "max_tokens": 700, "id_slot": 0, "chat_template_kwargs": {"enable_thinking": False}, "response_format": {"type": "json_schema", "json_schema": {"schema": QUESTION_SCHEMA}}, **SAMPLING}
-        r = await self.http.post(LLM, json=body, timeout=120)
+        r = await self.http.post(LLM, json=providers.llm_body(body), headers=LH, timeout=120)
         r.raise_for_status()
         s.questions = json.loads(r.json()["choices"][0]["message"]["content"])["questions"]
         s.next_q, s.planned_for = 0, s.index
@@ -710,7 +768,7 @@ class Session:
 
 @app.get("/")
 async def index():
-    return HTMLResponse((ROOT / "index.html").read_text())
+    return HTMLResponse((ROOT / "index.html").read_text().replace('data-newest="bottom"', f'data-newest="{NEWEST}"', 1))
 
 
 @app.get("/lesson/{concept}")
@@ -767,5 +825,6 @@ async def ws_endpoint(ws: WebSocket):
 
 
 if __name__ == "__main__":
+    print("Shahrazad:", providers.describe(), flush=True)
     tls = {"ssl_certfile": os.environ["TUTOR_SSL_CERT"], "ssl_keyfile": os.environ["TUTOR_SSL_KEY"]} if os.environ.get("TUTOR_SSL_CERT") else {}
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning", ws_max_size=2**22, **tls)

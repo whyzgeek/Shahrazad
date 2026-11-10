@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Work out how to place Shahrazad's models on this machine's GPUs and write the result to .env.
 
+Only the parts set to local in .env are placed (SHAHRAZAD_BRAIN, SHAHRAZAD_HEARING, SHAHRAZAD_VOICE).
+If they don't fit, it names the fewest parts to move to the cloud.
 Detects NVIDIA GPUs and system memory, or takes them from the command line to preview other hardware:
   scripts/configure.py                     # detect, show the plan
   scripts/configure.py --write             # detect, and save to .env
   scripts/configure.py --gpus 24 --ram 64  # preview one 24 GB card with 64 GB RAM
   scripts/configure.py --gpus 16,8         # preview two cards
+  scripts/configure.py --gpus 8 --cloud hearing   # preview with speech recognition in the cloud
 
 The memory figures below were measured with the models on two 12 GB cards. Other layouts are calculated from them.
 """
@@ -24,6 +27,12 @@ DISPLAY_MIB = 850         # typical use by a desktop on the GPU driving a monito
 RESERVED_MIB = 377        # driver reservation, used when previewing hardware
 RAM_BASE_GB = 17          # processes + operating system, before Gemma's CPU layers
 RAM_LAYER_GB = 0.4        # system memory per Gemma layer on the CPU
+RAM_SMALL_GB = 8          # without Gemma: the voice and/or Voxtral, the tutor and the operating system (estimate)
+
+PARTS = ("brain", "hearing", "voice")
+ENV_KEY = {"brain": "SHAHRAZAD_BRAIN", "hearing": "SHAHRAZAD_HEARING", "voice": "SHAHRAZAD_VOICE"}
+# Order to suggest moving parts to the cloud: biggest GPU saving for the least cost first (docs/CLOUD.md).
+CLOUD_PREFERENCE = ("hearing", "brain", "voice")
 
 # Measured speeds, tokens/s, on a Xeon E5-2687W v2. A newer CPU should do better at high layer counts.
 SPEED = [(10, 46), (14, 43), (22, 34), (30, 28)]
@@ -63,23 +72,55 @@ def layers_for(available):
     return n if n <= GEMMA_LAYERS else None
 
 
-def best_plan(gpus):
-    """Try every placement of the three GPU workloads and keep the one that leaves the most of Gemma on the GPU."""
+def best_plan(gpus, local=PARTS):
+    """Try every placement of the local GPU workloads and keep the one that leaves the most of Gemma on the GPU.
+    Returns (key, asr, llm, voice, moe), with None for a part that isn't local, or None if they don't fit."""
+    if not any(local):
+        return ((0, 0), None, None, None, 0)
+    if not gpus:
+        return None
+    pick = lambda part: gpus if part in local else [None]
     best = None
-    for asr, llm, voice in itertools.product(gpus, repeat=3):
+    for asr, llm, voice in itertools.product(pick("hearing"), pick("brain"), pick("voice")):
         room = {g["index"]: g["usable"] - MARGIN_MIB for g in gpus}
-        room[asr["index"]] -= VOXTRAL_MIB
-        room[voice["index"]] -= VOICE_MIB
-        if room[asr["index"]] < 0 or room[voice["index"]] < 0:
+        if asr:
+            room[asr["index"]] -= VOXTRAL_MIB
+        if voice:
+            room[voice["index"]] -= VOICE_MIB
+        if any(v < 0 for v in room.values()):
             continue
-        moe = layers_for(room[llm["index"]])
-        if moe is None:
-            continue
-        spare = room[llm["index"]] - (GEMMA_FULL_MIB - GEMMA_LAYER_MIB * moe)
+        moe, spare = 0, 0
+        if llm:
+            moe = layers_for(room[llm["index"]])
+            if moe is None:
+                continue
+            spare = room[llm["index"]] - (GEMMA_FULL_MIB - GEMMA_LAYER_MIB * moe)
         key = (moe, -spare)
         if best is None or key < best[0]:
             best = (key, asr, llm, voice, moe)
     return best
+
+
+def suggest_cloud(gpus, local, ram):
+    """The fewest local parts to move to the cloud so the rest fit, in GPU memory and in RAM."""
+    movable = [p for p in CLOUD_PREFERENCE if p in local]
+    for n in range(1, len(movable) + 1):
+        for move in itertools.combinations(movable, n):
+            rest = tuple(p for p in local if p not in move)
+            plan = best_plan(gpus, rest)
+            if plan and ("brain" not in rest or ram >= RAM_BASE_GB + RAM_LAYER_GB * plan[4]):
+                return move
+    return tuple(movable)
+
+
+def env_modes():
+    env = ROOT / ".env"
+    text = env.read_text() if env.exists() else ""
+    modes = {}
+    for part in PARTS:
+        m = re.search(rf"^{ENV_KEY[part]}=(\w+)", text, flags=re.M)
+        modes[part] = (m.group(1).lower() if m else "local")
+    return modes
 
 
 def speed_note(moe):
@@ -106,27 +147,50 @@ def main():
     ap = argparse.ArgumentParser(description="Plan Shahrazad's GPU layout.")
     ap.add_argument("--gpus", help="preview instead of detecting: card sizes in GB, for example 24 or 16,8")
     ap.add_argument("--ram", type=float, help="preview system memory in GB")
+    ap.add_argument("--cloud", help="preview with these parts in the cloud: all, none, or a list such as hearing,brain (default: as set in .env)")
     ap.add_argument("--write", action="store_true", help="save the plan to .env")
     a = ap.parse_args()
-    if a.write and a.gpus:
-        sys.exit("--write uses the detected hardware, so it can't be combined with --gpus.")
+    if a.write and (a.gpus or a.cloud):
+        sys.exit("--write uses the detected hardware and the parts set in .env, so it can't be combined with --gpus or --cloud.")
+    modes = env_modes()
+    if a.cloud:
+        chosen = PARTS if a.cloud == "all" else () if a.cloud == "none" else tuple(x.strip() for x in a.cloud.split(","))
+        bad = [x for x in chosen if x not in PARTS]
+        if bad:
+            sys.exit(f"Unknown part: {', '.join(bad)}. The parts are brain, hearing and voice.")
+        modes = {p: "cloud" if p in chosen else "local" for p in PARTS}
+    local = tuple(p for p in PARTS if modes[p] == "local")
+    cloud = [p for p in PARTS if p not in local]
     gpus = preview_gpus(a.gpus) if a.gpus else detect_gpus()
-    if not gpus:
-        sys.exit("No NVIDIA GPU found. Shahrazad currently needs CUDA: Voxtral runs on vLLM, and other GPUs are not supported yet.")
     ram = a.ram if a.ram else detect_ram_gb()
-    print("Hardware:", ", ".join(f"GPU {g['index']} {g['name']} ({g['usable']} MiB usable)" for g in gpus), f"| RAM {ram:.0f} GB")
-    plan = best_plan(gpus)
+    print("Hardware:", (", ".join(f"GPU {g['index']} {g['name']} ({g['usable']} MiB usable)" for g in gpus) if gpus else "no NVIDIA GPU"), f"| RAM {ram:.0f} GB")
+    print("Parts:   ", ", ".join(f"{p} {modes[p]}" for p in PARTS))
+    if not local:
+        print("Plan:     everything runs in the cloud, so no GPU is needed. Set OPENROUTER_API_KEY in .env.")
+        return
+    plan = best_plan(gpus, local)
+    if plan and "brain" in local and ram < RAM_BASE_GB + RAM_LAYER_GB * plan[4]:
+        plan = None   # Gemma would need more system memory than there is
     if not plan:
-        need = VOXTRAL_MIB + MARGIN_MIB
-        sys.exit(f"This hardware can't run all the models.\nOne GPU needs about {need} MiB free for Voxtral (a 12 GB card), and the models need about "
-                 f"{VOXTRAL_MIB + VOICE_MIB + GEMMA_FULL_MIB - GEMMA_LAYER_MIB * GEMMA_LAYERS + MARGIN_MIB} MiB across the GPUs at minimum.")
+        move = suggest_cloud(gpus, local, ram)
+        reason = "No NVIDIA GPU was found" if not gpus else "This hardware can't run the local parts"
+        sys.exit(f"{reason}. Run these in the cloud instead: {', '.join(move)}.\n"
+                 f"Re-run the installer with: ./install.sh --cloud {','.join(sorted(set(move) | set(cloud), key=PARTS.index))} --key YOUR_OPENROUTER_KEY")
     _, asr, llm, voice, moe = plan
-    fraction = min(0.95, math.ceil(VOXTRAL_ALLOC_MIB / asr["capacity"] * 1000) / 1000)
-    print(f"Plan:     Voxtral on GPU {asr['index']}, Gemma on GPU {llm['index']}, voice on GPU {voice['index']}")
-    print(f"Gemma:    {moe} of {GEMMA_LAYERS} layers' experts on the CPU, {speed_note(moe)}")
-    need_ram = RAM_BASE_GB + RAM_LAYER_GB * moe
-    print(f"RAM:      needs about {need_ram:.0f} GB" + ("" if ram >= need_ram else f", but this machine has {ram:.0f} GB. Expect swapping or failure."))
-    values = {"GPU_ASR": asr["index"], "GPU_LLM": llm["index"], "GPU_VOICE": voice["index"], "GEMMA_CPU_MOE": moe, "VOXTRAL_GPU_FRACTION": fraction}
+    where = lambda g, name: f"{name} on GPU {g['index']}" if g else f"{name} in the cloud"
+    print("Plan:    ", ", ".join([where(asr, "Voxtral"), where(llm, "Gemma"), where(voice, "voice")]))
+    values = {}
+    if llm:
+        print(f"Gemma:    {moe} of {GEMMA_LAYERS} layers' experts on the CPU, {speed_note(moe)}")
+        values.update(GPU_LLM=llm["index"], GEMMA_CPU_MOE=moe)
+    need_ram = RAM_BASE_GB + RAM_LAYER_GB * moe if llm else RAM_SMALL_GB
+    print(f"RAM:      needs about {need_ram:.0f} GB")
+    if asr:
+        values.update(GPU_ASR=asr["index"], VOXTRAL_GPU_FRACTION=min(0.95, math.ceil(VOXTRAL_ALLOC_MIB / asr["capacity"] * 1000) / 1000))
+    if voice:
+        values.update(GPU_VOICE=voice["index"])
+    if cloud:
+        print(f"Cloud:    {', '.join(cloud)} through OpenRouter (set OPENROUTER_API_KEY in .env)")
     if a.write:
         write_env(values)
         print("Saved to .env")

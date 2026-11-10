@@ -4,6 +4,8 @@ from pathlib import Path
 
 import yaml
 
+from tools import providers
+
 ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = Path(os.environ.get("SHAHRAZAD_LEARNER_DB", ROOT / "data/learner.db"))
 
@@ -97,7 +99,7 @@ async def find_errors(text, last_tutor, http, llm_url, source, practising=()):
         user += "\n\nReturn an empty correct_uses list."
     body = {"messages": [{"role": "system", "content": PROMPT}, {"role": "user", "content": user}], "max_tokens": 500, "temperature": 0, "id_slot": 1,
             "chat_template_kwargs": {"enable_thinking": False}, "response_format": {"type": "json_schema", "json_schema": {"schema": SCHEMA}}}
-    r = await http.post(llm_url, json=body, timeout=90)
+    r = await http.post(llm_url, json=providers.llm_body(body, think=True), headers=providers.LLM_HEADERS, timeout=90)
     r.raise_for_status()
     data = json.loads(r.json()["choices"][0]["message"]["content"])
     errors = clean_errors(text, data["errors"], source)
@@ -113,7 +115,7 @@ async def check_target(text, concept, http, llm_url):
     ask = f"An Arabic learner is practising this rule: {card['rule']}\nThe learner said: {text}\nDid they use this structure at all, and if so was it correct? Ignore missing vowel marks, and ignore mistakes unrelated to this rule."
     schema = {"type": "object", "properties": {"used": {"type": "boolean"}, "correct": {"type": "boolean"}}, "required": ["used", "correct"]}
     body = {"messages": [{"role": "user", "content": ask}], "max_tokens": 40, "temperature": 0, "id_slot": 1, "chat_template_kwargs": {"enable_thinking": False}, "response_format": {"type": "json_schema", "json_schema": {"schema": schema}}}
-    r = await http.post(llm_url, json=body, timeout=60)
+    r = await http.post(llm_url, json=providers.llm_body(body, think=True), headers=providers.LLM_HEADERS, timeout=60)
     r.raise_for_status()
     d = json.loads(r.json()["choices"][0]["message"]["content"])
     return bool(d["correct"]) if d["used"] else None
@@ -164,6 +166,9 @@ class Learner:
         rows = self.db.execute("SELECT s.id, s.title, s.updated, COUNT(t.id) AS turns FROM sessions s LEFT JOIN turns t ON t.session=s.id GROUP BY s.id HAVING turns>0 OR s.id=? ORDER BY s.updated DESC, s.id DESC LIMIT ?", (current, limit)).fetchall()
         return [dict(r) for r in rows]
 
+    def turn_count(self, sid):
+        return self.db.execute("SELECT COUNT(*) FROM turns WHERE session=?", (sid,)).fetchone()[0]
+
     def session_turns(self, sid):
         return [dict(r) for r in self.db.execute("SELECT id, said, reply FROM turns WHERE session=? ORDER BY id", (sid,))]
 
@@ -172,8 +177,8 @@ class Learner:
         return dict(row) if row else None
 
     def session_errors(self, sid):
-        rows = self.db.execute("SELECT e.id, e.wrong, e.correct, e.concept FROM errors e JOIN turns t ON t.id=e.turn WHERE t.session=? AND e.dismissed=0 ORDER BY e.id", (sid,)).fetchall()
-        return [{"id": r["id"], "wrong": r["wrong"], "right": r["correct"], "key": r["concept"], "concept": CONCEPTS.get(r["concept"], r["concept"]), "reminder": card_view(r["concept"], self.band())["reminder"] if r["concept"] in CARDS else "", "tracked": True} for r in rows]
+        rows = self.db.execute("SELECT e.id, e.turn, e.wrong, e.correct, e.concept FROM errors e JOIN turns t ON t.id=e.turn WHERE t.session=? AND e.dismissed=0 ORDER BY e.id", (sid,)).fetchall()
+        return [{"id": r["id"], "turn": r["turn"], "wrong": r["wrong"], "right": r["correct"], "key": r["concept"], "concept": CONCEPTS.get(r["concept"], r["concept"]), "reminder": card_view(r["concept"], self.band())["reminder"] if r["concept"] in CARDS else "", "tracked": True} for r in rows]
 
     def end_session(self, sid):
         self.db.execute("UPDATE sessions SET ended=? WHERE id=?", (time.time(), sid))
@@ -191,7 +196,7 @@ class Learner:
             if e["tracked"]:
                 # A new mistake makes the concept due again and sets its progress back a step.
                 self.db.execute("INSERT INTO concepts(concept,status,first_seen,last_seen,times,step,due_at,free_days) VALUES(?,'practising',?,?,1,0,?,'[]') ON CONFLICT(concept) DO UPDATE SET status='practising', last_seen=excluded.last_seen, times=times+1, step=MAX(step-1,0), due_at=excluded.due_at, free_days='[]'", (e["concept"], now, now, now))
-            rows.append({"id": cur.lastrowid, "wrong": e["wrong"], "right": e["right"], "key": e["concept"], "concept": CONCEPTS[e["concept"]], "reminder": card_view(e["concept"], self.band())["reminder"], "tracked": e["tracked"]})
+            rows.append({"id": cur.lastrowid, "turn": turn_id, "wrong": e["wrong"], "right": e["right"], "key": e["concept"], "concept": CONCEPTS[e["concept"]], "reminder": card_view(e["concept"], self.band())["reminder"], "tracked": e["tracked"]})
         self.db.commit()
         return rows
 
