@@ -709,7 +709,7 @@ class Session:
                     example = f" They recently said «{m['wrong']}» where «{m['correct']}» was right." if m else ""
                     notes.append(f"Follow-up to do now: the learner has been practising this rule: {card['rule']}{example} End your reply with one question about the current topic whose natural answer makes them use this structure. Don't say it's a review or mention the earlier mistake.")
                 elif s and s.next_q < len(s.questions):
-                    notes.append("A question you could ask next if it fits the conversation: " + s.questions[s.next_q])
+                    notes.append("Once the learner has answered your last question, a question you could ask next: " + s.questions[s.next_q])
                 seen = LEARNER.seen_rules()
                 if seen:
                     notes.append("The learner has already met these rules: " + " ".join(seen) + " If their last sentence is correct, don't correct it or repeat it back. " + learner.HINT_STYLE[band] + " Correct other kinds of error as usual. When it fits, ask something whose answer would make them use one of these rules.")
@@ -759,6 +759,9 @@ class Session:
         subject = self.ctx.subject
         if subject and subject.planned_for == subject.index and not review:
             subject.next_q += 1
+            if subject.next_q >= len(subject.questions):   # used up: plan more for the same subject, so it doesn't drift
+                subject.asked += subject.questions
+                subject.planned_for = -1
         if review:
             self.pending_target, self.last_review_turn = review, self.turn_no
         await self.send(type="timing", **t)
@@ -790,7 +793,8 @@ class Session:
             return
         weak = LEARNER.weak_rules()
         weak_note = f" The learner has been making mistakes with: {', '.join(weak)}. Where it fits naturally, write questions whose answer would make them use these structures." if weak else ""
-        msgs = [{"role": "system", "content": self.system_prompt()}] + self.history + [{"role": "user", "content": QUESTION_PROMPT + learner.QUESTION_STYLE[LEARNER.band()] + weak_note}]
+        asked_note = (" These questions were already asked, so write different ones: " + " / ".join(s.asked[-12:])) if s.asked else ""
+        msgs = [{"role": "system", "content": self.system_prompt()}] + self.history + [{"role": "user", "content": QUESTION_PROMPT + learner.QUESTION_STYLE[LEARNER.band()] + weak_note + asked_note}]
         body = {"messages": msgs, "max_tokens": 700, "id_slot": 0, "chat_template_kwargs": {"enable_thinking": False}, "response_format": {"type": "json_schema", "json_schema": {"schema": QUESTION_SCHEMA}}, **SAMPLING}
         r = await self.http.post(LLM, json=providers.llm_body(body), headers=LH, timeout=120)
         r.raise_for_status()

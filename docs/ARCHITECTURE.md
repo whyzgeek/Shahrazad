@@ -117,7 +117,7 @@ A conversation has a **current subject**: an article or a video. Tools are used 
 
 Tool results go into the system prompt instead of tool-role messages, because Gemma sometimes emits only its thinking marker right after a tool message. Results and subjects are marked as untrusted, and all tools are read-only.
 
-After a subject's first reply, Gemma prepares six questions from it: the main idea, why and what it means, larger ideas to argue about, and the learner's own views. They avoid small details, because the goal is practising Arabic, and where it fits they steer toward the structures this learner gets wrong. Each turn offers the next one, which it can adapt to what the learner just said.
+After a subject's first reply, Gemma prepares six questions from it: the main idea, why and what it means, larger ideas to argue about, and the learner's own views. They avoid small details, because the goal is practising Arabic, and where it fits they steer toward the structures this learner gets wrong. Every question, including the broader and personal ones, starts from something specific in the subject, so the discussion doesn't drift. Each turn offers the next one, for once the learner has answered the current question, and it can be adapted to what they just said. If the learner asks a side question, such as what a word means, the tutor answers briefly and returns to the question they were answering. When all six have been used, a fresh set is prepared for the same subject, avoiding the ones already asked.
 
 Opening a subject costs one slow turn, because Gemma has to read it: about 20 s for a 5,000-token video section on the test machine. The spoken "one moment" plays first, and later turns are cached.
 

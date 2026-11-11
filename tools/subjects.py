@@ -27,6 +27,7 @@ class Subject:
     questions: list = field(default_factory=list)   # prepared questions for the current section
     next_q: int = 0
     planned_for: int = -1                           # the section the questions were written for
+    asked: list = field(default_factory=list)        # questions used up earlier, so a new plan doesn't repeat them
 
     @property
     def text(self):
