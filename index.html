@@ -1,66 +1,151 @@
-<!doctype html><html lang="en" data-newest="bottom"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<!doctype html><html lang="en" data-newest="bottom" data-debug="0" data-login="0"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Shahrazad</title>
 <link rel="icon" href="assets/favicon.ico" sizes="16x16 32x32 48x48">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
 <style>
-:root{--bg:#f7f5f0;--fg:#1f1f1c;--mut:#6b6960;--line:#ddd8cc;--card:#fff;--acc:#0f6b5c;--acc2:#b3401f;--me:#e8f1ee}
-@media (prefers-color-scheme:dark){:root{--bg:#191a18;--fg:#ecebe6;--mut:#a3a197;--line:#35362f;--card:#232420;--acc:#2f8f7d;--acc2:#c0603f;--me:#22332e}}
+:root{--bg:#f7f5f0;--fg:#1f1f1c;--mut:#6b6960;--line:#ddd8cc;--card:#fff;--acc:#0f6b5c;--acc2:#b3401f;--me:#e8f1ee;--warnbg:#fbe9e2;--warnfg:#7a2a12}
+@media (prefers-color-scheme:dark){:root{--bg:#191a18;--fg:#ecebe6;--mut:#a3a197;--line:#35362f;--card:#232420;--acc:#2f8f7d;--acc2:#c0603f;--me:#22332e;--warnbg:#3a2219;--warnfg:#f1b9a3}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif;display:flex;height:100dvh;overflow:hidden}
 #main{flex:1;display:flex;flex-direction:column;min-width:0}
-#side{width:264px;flex:none;display:flex;flex-direction:column;border-right:1px solid var(--line);background:var(--card)}#side .brand{padding:14px 14px 10px}#newc{margin:0 10px 8px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);text-align:left}#newc:hover{border-color:var(--acc)}#slist{flex:1;overflow-y:auto;padding:4px 8px 12px}.day{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin:12px 8px 4px}.si{display:block;width:100%;text-align:left;border:0;background:none;color:var(--fg);padding:7px 10px;border-radius:8px}.si:hover{background:var(--bg)}.si.cur{background:var(--me)}.si .t1{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}.si .t2{display:block;font-size:12px;color:var(--mut)}#menu,#shade,header .logo{display:none}#menu{background:none;border:0;color:var(--fg);font-size:20px;padding:0 6px 0 0}#ctitle{font-size:15px;font-weight:600;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-@media (max-width:800px){#side{position:fixed;inset:0 auto 0 0;z-index:20;transform:translateX(-100%);transition:transform .2s;box-shadow:0 0 24px rgba(0,0,0,.25)}body.nav #side{transform:none}body.nav #shade{display:block;position:fixed;inset:0;z-index:10;background:rgba(0,0,0,.3)}#menu{display:block}header .logo{display:block;border-radius:50%}}
+#side{width:264px;flex:none;display:flex;flex-direction:column;border-right:1px solid var(--line);background:var(--card)}#side .brand{padding:14px 14px 10px}#newc{margin:0 10px 8px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);text-align:left}#newc:hover{border-color:var(--acc)}#slist{flex:1;overflow-y:auto;padding:4px 8px 12px}.day{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin:12px 8px 4px}.si{display:block;width:100%;text-align:left;border:0;background:none;color:var(--fg);padding:7px 10px;border-radius:8px}.si:hover{background:var(--bg)}.sr.cur .si{background:var(--me)}.si .t1{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}.si .t2{display:block;font-size:12px;color:var(--mut)}#menu,#shade,header .logo{display:none}#menu{background:none;border:0;color:var(--fg);font-size:20px;padding:0 6px 0 0}#ctitle{font-size:15px;font-weight:600;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sr{position:relative}.ops{position:absolute;right:6px;top:7px;display:none;gap:4px}.sr:hover .ops,.sr.cur .ops,.sr:focus-within .ops{display:flex}.sr:hover .t1,.sr.cur .t1,.sr:focus-within .t1{padding-right:58px}.ops button{background:var(--card);border:1px solid var(--line);border-radius:6px;font-size:12px;padding:1px 6px;color:var(--mut)}.ops button:hover{color:var(--fg);border-color:var(--acc)}
+@media (max-width:800px){#side{position:fixed;inset:0 auto 0 0;z-index:20;transform:translateX(-100%);transition:transform .2s;box-shadow:0 0 24px rgba(0,0,0,.25)}body.nav #side{transform:none}body.nav #shade{display:block;position:fixed;inset:0;z-index:10;background:rgba(0,0,0,.3)}#menu{display:block}header .logo{display:block;border-radius:50%}.ops{display:flex}.sr .t1{padding-right:58px}}
 header{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line);min-height:56px}
+#banner{background:var(--warnbg);color:var(--warnfg);padding:8px 16px;font-size:14px;border-bottom:1px solid var(--line)}
 .brand{display:flex;align-items:center;gap:10px}.brand img{border-radius:50%;display:block}h1{font-size:16px;margin:0}button{font:inherit;cursor:pointer}
 #wrap{flex:1;display:flex;min-height:0}#log{flex:1;min-width:0;overflow-y:auto;padding:16px;max-width:760px;margin:0 auto}#notes{width:280px;flex:none;overflow-y:auto;padding:12px 14px;border-left:1px solid var(--line)}#notes h2{font-size:13px;margin:0 0 8px;color:var(--mut);font-weight:600}.note{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:13px}.note .fix{font-family:'Noto Naskh Arabic',Amiri,Tahoma,serif;font-size:1.25em;line-height:1.8}.note s{color:var(--acc2)}.note b{color:var(--acc);font-weight:600}.note .c{color:var(--mut);font-size:12px}.note button{background:none;border:0;padding:0;color:var(--mut);font-size:12px;text-decoration:underline}.note .act{display:flex;gap:12px;margin-top:4px}.lesson{margin-top:6px;border-top:1px dashed var(--line);padding-top:6px}.lesson p{margin:4px 0}.lesson ul{margin:4px 0;padding-right:18px;font-family:'Noto Naskh Arabic',Amiri,Tahoma,serif;font-size:1.15em;line-height:1.7}.lesson .trap{color:var(--mut)}@media (max-width:800px){#wrap{flex-direction:column}#notes{width:auto;max-height:26vh;border-left:0;border-top:1px solid var(--line)}}
 .m{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin:10px 0}.me{background:var(--me)}
-.ar{font-family:'Noto Naskh Arabic',Amiri,Tahoma,serif;font-size:1.45em;line-height:1.9}.t{color:var(--acc);font-size:1.3em;margin-top:6px;border-top:1px dashed var(--line);padding-top:6px}
-.src{font-size:13px;color:var(--mut);margin:6px 2px}.src a{color:var(--acc)}.replay.on{background:var(--acc);border-color:var(--acc);color:#fff}.replay{display:block;margin-top:6px;background:none;border:1px solid var(--line);border-radius:6px;color:var(--mut);font-size:12px;padding:2px 8px}.who{font-size:12px;color:var(--mut)}.time{font-size:12px;color:var(--mut);margin-top:4px}
-footer{padding:12px 16px 18px;border-top:1px solid var(--line);max-width:760px;width:100%;margin:auto}
-#talk{width:100%;padding:18px;font-size:18px;border:0;border-radius:10px;background:var(--acc);color:#fff;touch-action:none;user-select:none}#talk.on{background:var(--acc2)}#talk:disabled{opacity:.5}
+.ar{font-family:'Noto Naskh Arabic',Amiri,Tahoma,serif;font-size:1.45em;line-height:1.9}
+.w{cursor:pointer;border-radius:4px}.w:hover,.w.sel{background:var(--me);box-shadow:0 0 0 2px var(--me)}
+.src{font-size:13px;color:var(--mut);margin:6px 2px}.src a{color:var(--acc)}
+.acts{display:flex;gap:8px;margin-top:6px}.acts button{background:none;border:1px solid var(--line);border-radius:6px;color:var(--mut);font-size:12px;padding:2px 8px}.replay.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.en{font-size:14px;color:var(--mut);margin-top:6px;border-top:1px dashed var(--line);padding-top:6px;line-height:1.5}
+.who{font-size:12px;color:var(--mut)}.time{font-size:12px;color:var(--mut);margin-top:4px}
+footer{padding:12px 16px 14px;border-top:1px solid var(--line);max-width:760px;width:100%;margin:auto}
+.row{display:flex;gap:8px}
+#talk{flex:1;padding:18px;font-size:18px;border:0;border-radius:10px;background:var(--acc);color:#fff;touch-action:none;user-select:none;-webkit-user-select:none}#talk.on{background:var(--acc2)}#talk:disabled{opacity:.5}
+#stop{flex:none;padding:0 20px;font-size:16px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--fg)}#stop:hover{border-color:var(--acc2)}
 form{display:flex;gap:8px;margin-top:10px}#txt{flex:1;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg);min-width:0}form button{padding:8px 14px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg)}
+.opts{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}.opt{font-size:12px;border:1px solid var(--line);border-radius:999px;background:none;color:var(--mut);padding:3px 10px}.opt[aria-pressed=true]{border-color:var(--acc);color:var(--acc)}
 #st{font-size:13px;color:var(--mut);margin-top:6px;min-height:1.2em}
 #log,#notes{overflow-anchor:none}.turn{border-radius:12px;transition:background .4s}.turn.flash{background:var(--me)}.num{font-size:11px;color:var(--mut);margin:14px 2px 0;letter-spacing:.03em}
 .note .tn{float:right;margin-left:8px;color:var(--acc);text-decoration:none;font-weight:600}
+mark.err{background:none;color:inherit;text-decoration:underline wavy var(--acc2);text-decoration-skip-ink:none;text-underline-offset:6px;cursor:pointer;border-radius:4px;transition:background .4s}mark.err:hover,mark.err.flash{background:var(--warnbg)}
+.note{transition:box-shadow .4s}.note.flash{box-shadow:0 0 0 2px var(--acc2)}.who .errs{color:var(--acc2);text-decoration:none;font-size:12px}
 #order{margin-left:auto;flex:none;background:none;border:1px solid var(--line);border-radius:6px;color:var(--mut);font-size:12px;padding:3px 8px}
+#welcome{margin:12vh auto 0;max-width:520px;text-align:center}#welcome img{border-radius:50%;width:72px;height:72px}#welcome p{color:var(--mut);line-height:1.5;margin:10px 0 18px}
+.starts{display:flex;flex-direction:column;gap:8px}.starts button{padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--fg);text-align:left}.starts button:hover{border-color:var(--acc)}.starts small{display:block;color:var(--mut);font-size:12px;margin-top:2px}
+#main{position:relative}#side .links{display:flex;flex-direction:column;gap:2px;margin:0 10px 8px}.link{border:0;background:none;color:var(--fg);text-align:left;padding:6px 10px;border-radius:8px;font-size:14px;text-decoration:none}.link:hover{background:var(--bg)}#logout{color:var(--mut);margin:8px 10px 12px}
+#prog{position:absolute;inset:0;z-index:15;background:var(--bg);overflow-y:auto}#prog .in{max-width:760px;margin:0 auto;padding:16px}#prog header{border:0;padding:0 0 8px;min-height:0}#prog h2{font-size:18px;margin:0}#prog h3{font-size:14px;color:var(--mut);font-weight:600;margin:22px 0 8px}#pclose{margin-left:auto;background:none;border:1px solid var(--line);border-radius:6px;color:var(--mut);padding:3px 10px}
+.level{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}.level b{font-size:18px;text-transform:capitalize}.level span{display:block;color:var(--mut);font-size:13px;margin-top:4px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}.chip{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:13px}.chip.due{border-color:var(--acc2)}.chip small{color:var(--mut);margin-left:6px}.empty{color:var(--mut);font-size:14px}
+#pcards .note{margin-bottom:8px}#pcards .from{color:var(--mut);font-size:12px}#pcards .from a{color:var(--acc)}.export{font-size:13px;color:var(--acc);margin-left:8px;font-weight:400}
+#pop{position:fixed;z-index:30;max-width:280px;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.18);padding:8px 12px;font-size:14px;line-height:1.5}#pop .base{font-family:'Noto Naskh Arabic',Amiri,Tahoma,serif;font-size:1.3em}
 </style>
-<nav id="side"><div class="brand"><img src="assets/logo.png" alt="" width="36" height="36"><h1>Shahrazad</h1></div><button id="newc">+ New conversation</button><div id="slist"></div></nav><div id="shade"></div>
+<nav id="side"><div class="brand"><img src="assets/logo.png" alt="" width="36" height="36"><h1>Shahrazad</h1></div><button id="newc">+ New conversation</button><div class="links"><button class="link" id="progb">📈 Progress and all corrections</button></div><div id="slist"></div><a id="logout" class="link" href="logout" hidden>Log out</a></nav><div id="shade"></div>
 <div id="main"><header><button id="menu" aria-label="Conversations">☰</button><img class="logo" src="assets/logo.png" alt="" width="28" height="28"><h2 id="ctitle" dir="auto"></h2><button id="order" title="Where new messages and corrections appear"></button></header>
+<div id="banner" role="status" hidden></div>
+<div id="prog" hidden><div class="in"><header><h2>Your progress</h2><button id="pclose">✕ Close</button></header><div id="pbody"></div></div></div>
 <div id="wrap"><div id="log"></div><aside id="notes" hidden><h2>Corrections</h2><div id="notelist"></div></aside></div>
-<footer><button id="talk" disabled>Connecting…</button>
-<form id="f"><input id="txt" dir="auto" placeholder="Type here, or paste a YouTube link" autocomplete="off"><button>Send</button></form><div id="st"></div></footer></div>
+<footer><div class="row"><button id="talk" disabled>Connecting…</button><button id="stop" hidden title="Stop the tutor (Esc)">■ Stop</button></div>
+<form id="f"><input id="txt" dir="auto" placeholder="Type here, or paste a YouTube link" autocomplete="off"><button>Send</button></form>
+<div class="opts"><button class="opt" id="o-tap" title="Tap once to start talking and once to stop, instead of holding">Tap to talk</button><button class="opt" id="o-slow" title="Play the tutor's voice at 0.8× speed">Slower voice</button><button class="opt" id="o-marks" title="Show the vowel marks on the tutor's replies">Vowel marks</button></div>
+<div id="st"></div></footer></div>
+<div id="pop" hidden></div>
 <script>
-const $=i=>document.getElementById(i),log=$('log'),talk=$('talk'),st=$('st');
-const IDLE='Hold to talk (or hold the space bar)';
-let ws,me,bot,talking=false,mic,node,ctx,play,nextAt=0,sources=[],limit;
+const $=i=>document.getElementById(i),log=$('log'),talk=$('talk'),st=$('st'),stopB=$('stop');
+const DEBUG=document.documentElement.dataset.debug==='1'||/[?&]debug\b/.test(location.search);
+const AR=/[ء-ي]/,MARKS=/[ً-ْٰ]/g;
+const pref=(k,d)=>{try{return localStorage.getItem(k)??d}catch(e){return d}},setPref=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
+let ws,me,bot,talking=false,mic,node,ctx,play,nextAt=0,sources=[],limit,busy=false,busySince=0,muted=false;   // muted: after Stop, audio still on its way is dropped
+let replayBtn=null,replayDone=false,decoding=0,slowQ=[];
+// Per-browser choices, like the order button.
+const opts={tap:pref('shahrazad-tap','0')==='1',slow:pref('shahrazad-slow','0')==='1',marks:pref('shahrazad-marks','1')==='1'};
+function showOpts(){for(const k in opts)$('o-'+k).setAttribute('aria-pressed',opts[k])}
+for(const k in opts)$('o-'+k).onclick=()=>{opts[k]=!opts[k];setPref('shahrazad-'+k,opts[k]?'1':'0');showOpts();if(k==='marks')document.querySelectorAll('.m.bot').forEach(renderTutor);updateState()};
+showOpts();
 // Conversation and corrections share one order: newest at the bottom (chat style) or at the top.
 // The server's default comes from TUTOR_NEWEST in .env; the button in the header changes it for this browser.
-const ORDER_KEY='shahrazad-newest';
-let newest=(()=>{try{return localStorage.getItem(ORDER_KEY)}catch(e){return null}})()||document.documentElement.dataset.newest||'bottom';
+let newest=pref('shahrazad-newest',null)||document.documentElement.dataset.newest||'bottom';
 let turnEl=null;const turnById={};
 const place=(parent,el)=>newest==='top'?parent.prepend(el):parent.append(el);
 const toNewest=el=>{el.scrollTop=newest==='top'?0:el.scrollHeight;el._mine=el.scrollTop};
 // Both panes follow new content. Scrolling away to read pauses that pane; scrolling back to the newest end, or starting a new exchange, resumes it.
 const follow=new Map();
 const atNewest=el=>newest==='top'?el.scrollTop<80:el.scrollHeight-el.scrollTop-el.clientHeight<80;
-[log,$('notes')].forEach(el=>{follow.set(el,true);el.addEventListener('scroll',()=>{if(Math.abs(el.scrollTop-el._mine)>2)follow.set(el,atNewest(el))},{passive:true});  // ignore the page's own scrolling
+[log,$('notes')].forEach(el=>{follow.set(el,true);el.addEventListener('scroll',()=>{if(Math.abs(el.scrollTop-el._mine)>2)follow.set(el,atNewest(el));hidePop()},{passive:true});  // ignore the page's own scrolling
  const ro=new ResizeObserver(()=>{if(follow.get(el))toNewest(el)});   // heights also change without new content, e.g. when the Arabic font finishes loading
  new MutationObserver(ms=>{ms.forEach(m=>m.addedNodes.forEach(n=>{if(n.nodeType===1&&n.parentNode===(el===log?log:$('notelist')))ro.observe(n)}));if(follow.get(el))toNewest(el)}).observe(el,{subtree:true,childList:true,characterData:true})});
 const followAll=()=>[log,$('notes')].forEach(el=>{follow.set(el,true);toNewest(el)});
 function showOrder(){$('order').textContent=newest==='top'?'Newest first ↑':'Newest last ↓'}
-$('order').onclick=()=>{newest=newest==='top'?'bottom':'top';try{localStorage.setItem(ORDER_KEY,newest)}catch(e){}
+$('order').onclick=()=>{newest=newest==='top'?'bottom':'top';setPref('shahrazad-newest',newest);
  [log,$('notelist')].forEach(el=>[...el.children].reverse().forEach(c=>el.append(c)));showOrder();followAll()};
 showOrder();
+
+// ---- What the tutor is doing, shown on the talk button, with Stop while it thinks or speaks.
+const touch=matchMedia('(pointer:coarse)').matches;   // no space bar to mention on a phone
+const idleText=()=>opts.tap?(touch?'Tap to talk':'Tap to talk (or press the space bar)'):(touch?'Hold to talk':'Hold to talk (or hold the space bar)');
+const speaking=()=>decoding>0||sources.length>0||slowQ.length>0;
+function setBusy(b){busy=b;busySince=Date.now();updateState()}
+function updateState(){if(talk.disabled)return;
+ if(busy&&Date.now()-busySince>120000)busy=false;   // never stuck on "Thinking…"
+ const s=talking?'listen':speaking()?'speak':busy?'think':'idle';
+ talk.classList.toggle('on',s==='listen');
+ const label=s==='listen'?(opts.tap?'Listening… tap when done':'Listening… release when done'):s==='think'?'Thinking…':s==='speak'?'Speaking…':idleText();
+ if(talk.textContent!==label)talk.textContent=label;
+ stopB.hidden=!(s==='think'||s==='speak')}
+setInterval(updateState,250);
+function stopAll(){muted=true;stopAudio();setBusy(false);if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'cancel'}))}
+stopB.onclick=stopAll;
+
+// ---- The conversation.
+function hideWelcome(){const w=$('welcome');if(w)w.remove()}
+function showWelcome(){if(log.querySelector('.turn,.src')||$('welcome'))return;const w=document.createElement('div');w.id='welcome';
+ w.innerHTML='<img src="assets/logo.png" alt=""><p>Practise speaking Modern Standard Arabic. Talk with the button below, or type, or start with one of these:</p><div class="starts"></div>';
+ const starts=[['Just talk','The tutor greets you and asks about your day',()=>sendText('مرحباً! أريد أن أتدرب على الكلام.')],
+  ["Today's news from Al Jazeera",'Pick a story and discuss it',()=>sendText('ما آخر الأخبار في الجزيرة؟')],
+  ['Discuss a YouTube video','Paste a link to a video with Arabic captions',()=>{const t=$('txt');t.placeholder='Paste a YouTube link with Arabic captions, then press Send';t.focus()}]];
+ starts.forEach(([a,b,f])=>{const x=document.createElement('button');x.textContent=a;const s=document.createElement('small');s.textContent=b;x.append(s);x.onclick=f;w.querySelector('.starts').append(x)});
+ log.append(w)}
 // One exchange: what the learner said, any article or video it opened, and the tutor's reply. Numbered once the server saves it.
-function newTurn(){const t=document.createElement('section');t.className='turn';const h=document.createElement('div');h.className='num';t.append(h);place(log,t);turnEl=t;followAll();return t}
+function newTurn(){hideWelcome();const t=document.createElement('section');t.className='turn';const h=document.createElement('div');h.className='num';t.append(h);place(log,t);turnEl=t;followAll();return t}
 function numberTurn(t,id,n){t.id='turn-'+id;t.querySelector('.num').textContent='#'+n;turnById[id]={el:t,n};
- document.querySelectorAll('.note[data-turn="'+id+'"] .tn').forEach(x=>x.textContent='#'+n)}
-function jump(id){const t=turnById[id];if(!t)return;t.el.scrollIntoView({block:'center',behavior:'smooth'});t.el.classList.add('flash');setTimeout(()=>t.el.classList.remove('flash'),1600)}
+ document.querySelectorAll('.note[data-turn="'+id+'"] .tn').forEach(x=>x.textContent='#'+n);markTurn(id)}
+function jump(id,err){const t=turnById[id];if(!t)return;const mk=err&&t.el.querySelector('mark.err[data-err="'+err+'"]');
+ (mk||t.el).scrollIntoView({block:'center',behavior:'smooth'});t.el.classList.add('flash');if(mk)mk.classList.add('flash');
+ setTimeout(()=>{t.el.classList.remove('flash');if(mk)mk.classList.remove('flash')},1600)}
+// Each correction is highlighted in what the learner said; clicking it shows its card. The match ignores vowel marks,
+// spacing and the usual spelling variants (أ إ آ ا, ى ي, ة ه), since the card's text and the transcript can differ slightly.
+const errsByTurn={};
+const VAR={'ا':'[اأإآ]','أ':'[اأإآ]','إ':'[اأإآ]','آ':'[اأإآ]','ى':'[ىي]','ي':'[ىي]','ة':'[ةه]','ه':'[ةه]'};
+function errPattern(w){const cs=[...w.replace(MARKS,'').replace(/[ـ.,،؟?!:؛"«»]/g,'').replace(/\s+/g,' ').trim()];if(!cs.length)return null;
+ return new RegExp(cs.map(c=>c===' '?'[\\s.,،؟?!:؛"«»]+':(VAR[c]||c.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'))).join('[ً-ْٰـ]*'))}
+function markTurn(id){const t=turnById[id],me=t&&t.el.querySelector('.m.me');if(!me)return;
+ const b=me.querySelector('.ar'),text=b.textContent,spans=[];me.querySelector('.who .errs')?.remove();const missed=[];
+ (errsByTurn[id]||[]).forEach(e=>{const re=errPattern(e.wrong),m=re&&re.exec(text);
+  if(m&&!spans.some(s=>m.index<s.end&&m.index+m[0].length>s.start))spans.push({start:m.index,end:m.index+m[0].length,e});else missed.push(e)});
+ spans.sort((a,c)=>a.start-c.start);b.textContent='';let at=0;
+ spans.forEach(s=>{b.append(text.slice(at,s.start));const k=document.createElement('mark');k.className='err';k.dataset.err=s.e.id;k.textContent=text.slice(s.start,s.end);
+  k.title=s.e.right+' (show the correction)';k.onclick=()=>showNote(s.e.id);b.append(k);at=s.end});b.append(text.slice(at));
+ if(missed.length){const a=document.createElement('a');a.className='errs';a.href='#';a.textContent=' · '+missed.length+(missed.length>1?' corrections':' correction');
+  a.onclick=ev=>{ev.preventDefault();showNote(missed[0].id)};me.querySelector('.who').append(a)}}   // found by the check but not word for word in the transcript
+function showNote(id){const n=document.querySelector('.note[data-id="'+id+'"]');if(!n)return;
+ n.scrollIntoView({block:'nearest',behavior:'smooth'});n.classList.add('flash');setTimeout(()=>n.classList.remove('flash'),1600)}
+function unmark(e){const l=errsByTurn[e.turn];if(!l)return;errsByTurn[e.turn]=l.filter(x=>x.id!==e.id);markTurn(e.turn)}
 function bubble(cls,who){const d=document.createElement('div');d.className='m '+cls;
  const w=document.createElement('div');w.className='who';w.textContent=who;
  const b=document.createElement('div');b.className='ar';b.dir='auto';d.append(w,b);(turnEl||newTurn()).append(d);return d}
 const setBody=(d,t)=>{d.querySelector('.ar').textContent=t};
-function addNote(e){$('notes').hidden=false;const n=document.createElement('div');n.className='note';n.dataset.turn=e.turn??'';
- const tn=document.createElement('a');tn.className='tn';tn.href='#';tn.title='Show this exchange';tn.textContent=turnById[e.turn]?'#'+turnById[e.turn].n:'';tn.onclick=ev=>{ev.preventDefault();jump(e.turn)};
+const tutorBubble=()=>{const d=bubble('bot','Tutor');d._plain='';d._voc='';d._covered=0;return d};
+// A reply shows one Arabic line: the vowelled sentences as they are spoken, then the rest as it is still being written.
+// Every Arabic word can be tapped for its meaning.
+function renderTutor(d){let t=d._voc?d._voc+' '+d._plain.slice(d._covered).trim():d._plain;
+ if(!opts.marks)t=t.replace(MARKS,'');
+ const b=d.querySelector('.ar');b.textContent='';
+ t.trim().split(/(\s+)/).forEach(p=>{if(AR.test(p)){const s=document.createElement('span');s.className='w';s.textContent=p;b.append(s)}else if(p)b.append(p)})}
+function addNote(e){$('notes').hidden=false;const n=document.createElement('div');n.className='note';n.dataset.turn=e.turn??'';n.dataset.id=e.id;
+ if(e.turn!=null){(errsByTurn[e.turn]=errsByTurn[e.turn]||[]).push(e);markTurn(e.turn)}
+ const tn=document.createElement('a');tn.className='tn';tn.href='#';tn.title='Show where you said it';tn.textContent=turnById[e.turn]?'#'+turnById[e.turn].n:'';tn.onclick=ev=>{ev.preventDefault();jump(e.turn,e.id)};
  const f=document.createElement('div');f.className='fix';f.dir='rtl';const s=document.createElement('s');s.textContent=e.wrong;const b=document.createElement('b');b.textContent=e.right;f.append(s,' ← ',b);
  const c=document.createElement('div');c.className='c';c.textContent=e.concept;
  const r=document.createElement('div');r.dir='auto';r.textContent=e.reminder;
@@ -72,65 +157,147 @@ function addNote(e){$('notes').hidden=false;const n=document.createElement('div'
   if(l.trap){const t=document.createElement('p');t.className='trap';t.textContent=l.trap;box.append(t)}
   n.insertBefore(box,more.parentNode);more.textContent='Hide'};
  const act=document.createElement('div');act.className='act';
- const x=document.createElement('button');x.textContent="That's not what I said";x.onclick=()=>{ws.send(JSON.stringify({type:'dismiss',id:e.id}));n.remove();if(!$('notelist').children.length)$('notes').hidden=true};
+ const x=document.createElement('button');x.textContent="That's not what I said";x.onclick=()=>{ws.send(JSON.stringify({type:'dismiss',id:e.id}));n.remove();unmark(e);if(!$('notelist').children.length)$('notes').hidden=true};
  act.append(more,x);n.append(tn,f,c,r,act);place($('notelist'),n)}
-function addReplay(el,id){if(el.querySelector('.replay'))return;const b=document.createElement('button');b.className='replay';b.textContent='▶ Replay';
- b.onclick=()=>{stopAudio();play=play||new AudioContext();play.resume();replayBtn=b;replayDone=false;b.classList.add('on');ws.send(JSON.stringify({type:'replay',turn:id}))};el.append(b)}
-function card(kind,title,url){const d=document.createElement('div');d.className='src';const b=document.createElement('b');b.textContent=kind+': ';d.append(b);
+// Under a finished reply: Replay, and Translate for when the learner is lost.
+function addActions(el,id){if(el.querySelector('.acts'))return;const row=document.createElement('div');row.className='acts';
+ const b=document.createElement('button');b.className='replay';b.textContent='▶ Replay';
+ b.onclick=()=>{stopAudio();muted=false;play=play||new AudioContext();play.resume();replayBtn=b;replayDone=false;b.classList.add('on');ws.send(JSON.stringify({type:'replay',turn:id}))};
+ const tr=document.createElement('button');tr.className='translate';tr.textContent='Translate';let en=null;
+ tr.onclick=async()=>{if(en){en.remove();en=null;tr.textContent='Translate';return}
+  en=document.createElement('div');en.className='en';en.textContent='Translating…';el.append(en);tr.textContent='Hide translation';const mine=en;
+  try{const r=await(await fetch('translate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:el._plain||el.querySelector('.ar').textContent})})).json();
+   mine.textContent=r.english||'Translation failed. Please try again.'}catch(e){mine.textContent='Translation failed. Please try again.'}};
+ row.append(b,tr);el.append(row)}
+function card(kind,title,url){hideWelcome();const d=document.createElement('div');d.className='src';const b=document.createElement('b');b.textContent=kind+': ';d.append(b);
  if(/^https?:\/\//.test(url)){const l=document.createElement('a');l.href=url;l.target='_blank';l.rel='noopener noreferrer';l.textContent=title;d.append(l)}else d.append(title);
  if(turnEl)turnEl.append(d);else place(log,d)}
-let replayBtn=null,replayDone=false,decoding=0;
+
+// ---- Tap a word for its meaning.
+const pop=$('pop');let popWord=null;
+function hidePop(){pop.hidden=true;if(popWord)popWord.classList.remove('sel');popWord=null}
+log.addEventListener('click',async e=>{const w=e.target.closest('.m.bot .w');if(!w)return;e.stopPropagation();
+ if(popWord===w){hidePop();return}hidePop();popWord=w;w.classList.add('sel');
+ const word=w.textContent.replace(/[^ء-يً-ْٰ]/g,''),d=w.closest('.m');
+ pop.textContent='…';pop.hidden=false;placePop(w);
+ try{const r=await(await fetch('gloss',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({word,sentence:d._plain||''})})).json();
+  if(popWord!==w)return;pop.textContent='';
+  if(r.meaning){const b=document.createElement('div');b.className='base';b.dir='rtl';b.textContent=r.base||word;const m=document.createElement('div');m.textContent=r.meaning;pop.append(b,m)}
+  else pop.textContent='No meaning found.'}catch(err){if(popWord===w)pop.textContent='Could not look this word up.'}
+ placePop(w)});
+function placePop(w){const r=w.getBoundingClientRect(),pw=pop.offsetWidth,ph=pop.offsetHeight;
+ pop.style.left=Math.max(8,Math.min(innerWidth-pw-8,r.left+r.width/2-pw/2))+'px';pop.style.top=(r.top-ph-8>8?r.top-ph-8:r.bottom+8)+'px'}
+document.addEventListener('click',e=>{if(!pop.hidden&&!pop.contains(e.target))hidePop()});
+
+// ---- Audio. Normal speed plays through Web Audio, back to back; the slower voice uses audio elements, which keep the pitch.
 function endReplay(){if(replayBtn)replayBtn.classList.remove('on');replayBtn=null;replayDone=false}
-function checkReplay(){if(replayBtn&&replayDone&&decoding===0&&sources.length===0)endReplay()}
-function stopAudio(){sources.forEach(s=>{try{s.stop()}catch(e){}});sources=[];nextAt=0;endReplay()}
-async function queue(buf){decoding++;try{play=play||new AudioContext();if(play.state==='suspended')await play.resume();
+function checkReplay(){if(replayBtn&&replayDone&&!speaking())endReplay()}
+function stopAudio(){slowQ.forEach(u=>URL.revokeObjectURL(u));slowQ=[];sources.forEach(s=>{try{s.stop()}catch(e){}});sources=[];nextAt=0;endReplay()}
+function slowNext(){if(sources.length||!slowQ.length)return;const url=slowQ.shift(),a=new Audio(url);a.playbackRate=.8;a.preservesPitch=true;
+ let over=false;const h={stop(){a.pause();done()}};
+ const done=()=>{if(over)return;over=true;URL.revokeObjectURL(url);sources=sources.filter(x=>x!==h);slowNext();checkReplay()};
+ a.onended=done;a.onerror=done;sources.push(h);a.play().catch(done);updateState()}
+async function queue(buf){if(opts.slow){slowQ.push(URL.createObjectURL(new Blob([buf])));slowNext();return}
+ decoding++;try{play=play||new AudioContext();if(play.state==='suspended')await play.resume();
  const a=await play.decodeAudioData(buf),s=play.createBufferSource();s.buffer=a;s.connect(play.destination);
- const at=Math.max(play.currentTime+.03,nextAt);s.start(at);nextAt=at+a.duration;sources.push(s);s.onended=()=>{sources=sources.filter(x=>x!==s);checkReplay()}}finally{decoding--;checkReplay()}}
+ const at=Math.max(play.currentTime+.03,nextAt);s.start(at);nextAt=at+a.duration;sources.push(s);updateState();s.onended=()=>{sources=sources.filter(x=>x!==s);checkReplay()}}finally{decoding--;checkReplay()}}
+
+// ---- Health: a banner when a part of the tutor isn't answering, instead of a page that seems frozen.
+async function checkHealth(){try{const res=await fetch('health');if(res.status===401){location.href='login';return}const h=await res.json(),down=Object.values(h).filter(p=>!p.ok);
+  const b=$('banner');b.hidden=!down.length;
+  if(down.length){const local=down.filter(p=>p.mode!=='cloud').map(p=>p.name),cloud=down.filter(p=>p.mode==='cloud');
+   b.textContent=[local.length?`${local.join(', ')} ${local.length>1?'are':'is'} not responding, so replies may not come. On the server, run scripts/start.sh.`:'',
+    cloud.length?'No OpenRouter key is set for the cloud parts. Add OPENROUTER_API_KEY to .env.':''].filter(Boolean).join(' ')}}
+ catch(e){}}
+checkHealth();setInterval(checkHealth,20000);
+
 function connect(){ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws');ws.binaryType='arraybuffer';
- ws.onopen=()=>{talk.disabled=false;talk.textContent=IDLE;st.textContent=''};
- ws.onclose=()=>{talk.disabled=true;talk.textContent='Reconnecting…';setTimeout(connect,1500)};
- ws.onmessage=e=>{if(typeof e.data!=='string'){queue(e.data);return}const m=JSON.parse(e.data);
+ ws.onopen=()=>{talk.disabled=false;st.textContent='';updateState();checkHealth()};
+ ws.onclose=()=>{talk.disabled=true;talk.textContent='Reconnecting…';stopB.hidden=true;busy=false;checkHealth();setTimeout(connect,1500)};   // a 401 there means the login has expired
+ ws.onmessage=e=>{if(typeof e.data!=='string'){if(!muted)queue(e.data);return}const m=JSON.parse(e.data);
   if(m.type==='partial'){if(me)setBody(me,m.text)}
-  else if(m.type==='final'){if(me)setBody(me,m.text||'…');st.textContent=m.text?'Thinking…':'';
-   if(!m.text&&turnEl&&!turnEl.id){turnEl.remove();turnEl=me=null}}
-  else if(m.type==='assistant'){if(!bot)bot=bubble('','Tutor');setBody(bot,m.text);st.textContent=''}
+  else if(m.type==='final'){if(me)setBody(me,m.text||'…');if(!m.text){setBusy(false);if(turnEl&&!turnEl.id){turnEl.remove();turnEl=me=null;showWelcome()}}}
+  else if(m.type==='assistant'){if(!bot)bot=tutorBubble();bot._plain=m.text;renderTutor(bot);st.textContent=''}
   else if(m.type==='status'){st.textContent=m.text}
   else if(m.type==='subject'){card(m.kind==='video'?'Video':'Article',m.title+(m.sections>1?' ('+m.section+'/'+m.sections+')':''),m.url);st.textContent=''}
   else if(m.type==='items'){m.items.forEach((it,i)=>card('Option '+(i+1),it.title,it.url));st.textContent=''}
-  else if(m.type==='turn'){if(bot)addReplay(bot,m.id);if(turnEl)numberTurn(turnEl,m.id,m.n)}
+  else if(m.type==='turn'){if(bot)addActions(bot,m.id);if(turnEl)numberTurn(turnEl,m.id,m.n)}
   else if(m.type==='replay_done'){replayDone=true;checkReplay()}
   else if(m.type==='errors'){m.errors.forEach(addNote)}
   else if(m.type==='sessions'){renderSessions(m)}
-  else if(m.type==='session'){stopAudio();me=bot=turnEl=null;log.textContent='';$('notelist').textContent='';$('notes').hidden=true;st.textContent='';if(m.subject)card(m.subject.kind==='video'?'Video':'Article',m.subject.title,m.subject.url);
-   m.turns.forEach((t,i)=>{newTurn();setBody(bubble('me','You'),t.said);const b=bubble('','Tutor');setBody(b,t.reply);if(t.id){addReplay(b,t.id);numberTurn(turnEl,t.id,i+1)}});
-   turnEl=null;m.errors.forEach(addNote);bot=null;me=null;followAll()}
+  else if(m.type==='session'){stopAudio();hidePop();setBusy(false);me=bot=turnEl=null;for(const k in turnById)delete turnById[k];for(const k in errsByTurn)delete errsByTurn[k];log.textContent='';$('notelist').textContent='';$('notes').hidden=true;st.textContent='';if(m.subject)card(m.subject.kind==='video'?'Video':'Article',m.subject.title,m.subject.url);
+   m.turns.forEach((t,i)=>{newTurn();setBody(bubble('me','You'),t.said);const b=tutorBubble();b._plain=t.reply;if(t.spoken){b._voc=t.spoken;b._covered=t.reply.length}renderTutor(b);if(t.id){addActions(b,t.id);numberTurn(turnEl,t.id,i+1)}});
+   turnEl=null;m.errors.forEach(addNote);bot=null;me=null;showWelcome();followAll()}
   else if(m.type==='text_only'){st.textContent='Shown as text only: the Arabic voice can’t read that language.'}
-  else if(m.type==='tashkeel'&&bot){let t=bot.querySelector('.t');if(!t){t=document.createElement('div');t.className='ar t';t.dir='auto';bot.append(t)}t.textContent=m.text}
-  else if(m.type==='timing'&&bot){const t=document.createElement('div');t.className='time';t.textContent='First audio '+(m.end_of_speech_to_first_audio_s??'–')+' s after you stopped';bot.append(t)}
-  else if(m.type==='error'){st.textContent=m.text}}}
+  else if(m.type==='tashkeel'&&bot){bot._voc=m.display??m.text;bot._covered=m.covered??0;renderTutor(bot)}
+  else if(m.type==='timing'){setBusy(false);if(DEBUG&&bot){const t=document.createElement('div');t.className='time';t.textContent='First audio '+(m.end_of_speech_to_first_audio_s??'–')+' s after you stopped';bot.append(t)}}
+  else if(m.type==='error'){st.textContent=m.text;setBusy(false)}
+  updateState()}}
+
+// ---- Microphone: hold to talk, or tap to start and tap to stop.
 const WORK=`class P extends AudioWorkletProcessor{constructor(){super();this.r=sampleRate/16000;this.a=0;this.n=0;this.p=0;this.b=new Int16Array(1280);this.i=0}
 process(inp){const c=inp[0][0];if(!c)return true;for(let k=0;k<c.length;k++){this.a+=c[k];this.n++;this.p++;if(this.p>=this.r){this.p-=this.r;const v=Math.max(-1,Math.min(1,this.a/this.n));this.a=0;this.n=0;this.b[this.i++]=v*32767;if(this.i===1280){this.port.postMessage(this.b.buffer.slice(0));this.i=0}}}return true}}registerProcessor('p',P)`;
 async function initMic(){if(mic)return;mic=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
  ctx=new AudioContext();await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORK],{type:'text/javascript'})));
  node=new AudioWorkletNode(ctx,'p');ctx.createMediaStreamSource(mic).connect(node);node.port.onmessage=e=>{if(talking&&ws.readyState===1)ws.send(e.data)}}
-async function down(){if(talking||talk.disabled)return;talking=true;
+async function down(){if(talking||talk.disabled)return;talking=true;hidePop();
  try{await initMic();await ctx.resume()}catch(e){talking=false;st.textContent='Microphone unavailable. Open this page at http://localhost:8791 through the SSH tunnel and allow the mic.';return}
  if(!talking)return; // released during the permission prompt
- stopAudio();bot=null;newTurn();me=bubble('me','You');talk.classList.add('on');talk.textContent='Listening… release when done';st.textContent='';ws.send(JSON.stringify({type:'start'}));limit=setTimeout(up,300000)}
-function up(){if(!talking)return;talking=false;clearTimeout(limit);talk.classList.remove('on');talk.textContent=IDLE;setTimeout(()=>ws.send(JSON.stringify({type:'stop'})),120)}
-talk.onpointerdown=e=>{e.preventDefault();talk.setPointerCapture(e.pointerId);down()};talk.onpointerup=up;talk.onpointercancel=up;
-addEventListener('keydown',e=>{if(e.code==='Space'&&!e.repeat&&document.activeElement!==$('txt')){e.preventDefault();down()}});
-addEventListener('keyup',e=>{if(e.code==='Space'&&document.activeElement!==$('txt')){e.preventDefault();up()}});
-$('f').onsubmit=e=>{e.preventDefault();const v=$('txt').value.trim();if(!v)return;$('txt').value='';stopAudio();bot=null;newTurn();play=play||new AudioContext();play.resume();setBody(bubble('me','You'),v);ws.send(JSON.stringify({type:'text',text:v}))};
+ stopAudio();muted=false;setBusy(false);bot=null;newTurn();me=bubble('me','You');st.textContent='';ws.send(JSON.stringify({type:'start'}));limit=setTimeout(up,300000);updateState()}
+function up(){if(!talking)return;talking=false;clearTimeout(limit);setBusy(true);setTimeout(()=>ws.send(JSON.stringify({type:'stop'})),120)}
+talk.onpointerdown=e=>{e.preventDefault();if(opts.tap){if(talking)up();else down();return}talk.setPointerCapture(e.pointerId);down()};
+talk.onpointerup=()=>{if(!opts.tap)up()};talk.onpointercancel=()=>{if(!opts.tap)up()};
+const typing=()=>document.activeElement===$('txt');
+addEventListener('keydown',e=>{if(e.code==='Escape'){if(!pop.hidden)hidePop();else if(busy||speaking())stopAll();return}
+ if(e.code==='Space'&&!e.repeat&&!typing()){e.preventDefault();if(opts.tap&&talking)up();else down()}});
+addEventListener('keyup',e=>{if(e.code==='Space'&&!typing()){e.preventDefault();if(!opts.tap)up()}});
+function sendText(v){stopAudio();muted=false;hidePop();bot=null;newTurn();play=play||new AudioContext();play.resume();setBody(bubble('me','You'),v);setBusy(true);ws.send(JSON.stringify({type:'text',text:v}))}
+$('f').onsubmit=e=>{e.preventDefault();const v=$('txt').value.trim();if(!v)return;$('txt').value='';$('txt').placeholder='Type here, or paste a YouTube link';sendText(v)};
+
+// ---- Conversations in the sidebar, with rename and delete.
 function dayLabel(ts){const d=new Date(ts*1000),now=new Date(),one=864e5,start=new Date(now.getFullYear(),now.getMonth(),now.getDate()).getTime();
  return ts*1000>=start?'Today':ts*1000>=start-one?'Yesterday':ts*1000>=start-6*one?'This week':d.toLocaleDateString(undefined,{month:'long',year:'numeric'})}
 function renderSessions(m){const L=$('slist');L.textContent='';let last='';
  m.sessions.forEach(x=>{const g=dayLabel(x.updated||0);if(g!==last){const h=document.createElement('div');h.className='day';h.textContent=g;L.append(h);last=g}
-  const b=document.createElement('button');b.className='si'+(x.id===m.current?' cur':'');const t=document.createElement('span');t.className='t1';t.dir='auto';t.textContent=x.title;
+  const row=document.createElement('div');row.className='sr'+(x.id===m.current?' cur':'');
+  const b=document.createElement('button');b.className='si';const t=document.createElement('span');t.className='t1';t.dir='auto';t.textContent=x.title;
   const s=document.createElement('span');s.className='t2';s.textContent=x.turns+(x.turns===1?' turn':' turns');b.append(t,s);b.title=x.title;
-  b.onclick=()=>{document.body.classList.remove('nav');if(x.id!==m.current)ws.send(JSON.stringify({type:'switch',id:x.id}))};L.append(b);
+  b.onclick=()=>{document.body.classList.remove('nav');closeProgress();if(x.id!==m.current)ws.send(JSON.stringify({type:'switch',id:x.id}))};
+  const ops=document.createElement('div');ops.className='ops';
+  const rn=document.createElement('button');rn.textContent='✎';rn.title='Rename';rn.setAttribute('aria-label','Rename '+x.title);
+  rn.onclick=()=>{const v=prompt('Rename this conversation',x.title);if(v&&v.trim()&&v.trim()!==x.title)ws.send(JSON.stringify({type:'rename',id:x.id,title:v.trim()}))};
+  const del=document.createElement('button');del.textContent='✕';del.title='Delete';del.setAttribute('aria-label','Delete '+x.title);
+  del.onclick=()=>{if(confirm('Delete “'+x.title+'” and its corrections? What you have practised stays in your progress.'))ws.send(JSON.stringify({type:'delete',id:x.id}))};
+  ops.append(rn,del);row.append(b,ops);L.append(row);
   if(x.id===m.current)$('ctitle').textContent=x.title})}
-$('newc').onclick=()=>{document.body.classList.remove('nav');ws.send(JSON.stringify({type:'reset'}))};
+$('newc').onclick=()=>{document.body.classList.remove('nav');closeProgress();ws.send(JSON.stringify({type:'reset'}))};
+$('logout').hidden=document.documentElement.dataset.login!=='1';
+
+// ---- Progress: the level, what's being practised or learned, and every correction so far, from the learner record.
+const el=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e};
+function closeProgress(){$('prog').hidden=true}
+$('pclose').onclick=closeProgress;
+$('progb').onclick=async()=>{document.body.classList.remove('nav');const body=$('pbody');body.textContent='Loading…';$('prog').hidden=false;
+ let p;try{const r=await fetch('progress');if(r.status===401){location.href='login';return}p=await r.json()}catch(e){body.textContent='Could not load your progress.';return}
+ body.textContent='';
+ const lv=el('div','level');lv.append(el('b',null,p.band),el('span',null,`Estimated from ${p.turns} exchange${p.turns===1?'':'s'} in ${p.sessions} conversation${p.sessions===1?'':'s'}. The tutor adapts its language to this level.`));
+ body.append(el('h3',null,'Level'),lv);
+ const chips=(title,list,empty,extra)=>{body.append(el('h3',null,`${title} (${list.length})`));if(!list.length){body.append(el('p','empty',empty));return}
+  const c=el('div','chips');list.forEach(x=>{const ch=el('span','chip'+(x.due?' due':''),x.title);const sm=extra(x);if(sm)ch.append(el('small',null,sm));c.append(ch)});body.append(c)};
+ chips('Practising',p.practising,'Nothing yet: rules you get wrong appear here, and the tutor brings them back in later conversations.',x=>(x.times>1?x.times+' mistakes':'1 mistake')+(x.due?' · due for practice':''));
+ chips('Learned',p.learned,'A rule counts as learned once you use it correctly on two different days.',()=>'');
+ const h=el('h3',null,`All corrections (${p.cards.length})`);if(p.cards.length){const a=el('a','export','Export for Anki (CSV)');a.href='cards.csv';a.download='shahrazad-cards.csv';h.append(a)}
+ body.append(h);const list=el('div');list.id='pcards';body.append(list);
+ if(!p.cards.length)list.append(el('p','empty','No corrections yet.'));
+ p.cards.forEach(c=>{const n=el('div','note');const f=el('div','fix');f.dir='rtl';f.append(el('s',null,c.wrong),' ← ',el('b',null,c.right));
+  const from=el('div','from');const a=el('a',null,c.title||'Conversation');a.href='#';a.onclick=ev=>{ev.preventDefault();closeProgress();ws.send(JSON.stringify({type:'switch',id:c.session}));
+   const t=setInterval(()=>{if(turnById[c.turn]){clearInterval(t);jump(c.turn,c.id);showNote(c.id)}},200);setTimeout(()=>clearInterval(t),5000)};
+  from.append('From ',a,' · '+new Date(c.at*1000).toLocaleDateString());
+  const more=el('button',null,'Explain this');let box=null;
+  more.onclick=async()=>{if(box){box.remove();box=null;more.textContent='Explain this';return}const l=await(await fetch('lesson/'+encodeURIComponent(c.key))).json();
+   box=el('div','lesson');const pr=el('p',null,l.rule);pr.dir='auto';box.append(pr);
+   if(l.examples){const u=el('ul');u.dir='rtl';l.examples.forEach(t=>u.append(el('li',null,t)));box.append(u)}if(l.trap)box.append(el('p','trap',l.trap));n.insertBefore(box,act);more.textContent='Hide'};
+  const act=el('div','act');act.append(more);n.append(f,el('div','c',c.concept),from,act);list.append(n)})};
 $('menu').onclick=()=>document.body.classList.toggle('nav');$('shade').onclick=()=>document.body.classList.remove('nav');
 connect();
 </script></html>

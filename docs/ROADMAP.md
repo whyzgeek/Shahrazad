@@ -4,15 +4,15 @@ Shahrazad grows in small phases, and each one should work on its own before the 
 
 ## Now
 
-The tutor holds a push-to-talk conversation in Modern Standard Arabic, corrects mistakes, and speaks and shows fully vowelled replies. Everything runs locally.
+The tutor holds a push-to-talk conversation in Modern Standard Arabic, corrects mistakes, and speaks and shows fully vowelled replies. It runs locally, or any of its three parts can run in the cloud through one OpenRouter key.
 
 ## Phase 1: subjects (done)
 
 The tutor can find a subject from a named news outlet or a web search, or from a pasted YouTube link with Arabic captions, and discuss it over many turns.
 
-## Phase 2: access control
+## Phase 2: access control (done)
 
-Add a login before the tutor is shared more widely.
+One shared password (`TUTOR_PASSWORD`) for the page and its WebSocket, with a signed cookie, and a check that a WebSocket comes from the tutor's own page. Separate accounts with separate learner records would come next if several people share one server.
 
 ## Phase 3: learning features
 
@@ -29,7 +29,9 @@ Everything here runs without setup screens or extra questions, and the conversat
 ## Phase 4: more natural conversation
 
 - Automatic detection of when the learner starts and stops talking, with no button.
-- Lower delay, mainly by vowelling sentence by sentence while the reply is still being written.
+- Lower delay, by vowelling and speaking each sentence while the reply is still being written (done).
+- A dedicated vowelling model. Tashkeel-v3 (0.2B) was tested in November 2026: about 40 times faster than Gemma on the CPU, but it doubled marks and letters on real tutor replies, and on SadeedDiac-25 it got 3.3% of case endings wrong against Gemma's 2.2% (8.9% of words against 4.5%). Gemma stays until a model beats it on case endings.
+- More of Gemma on the GPU. Its expert layers partly run on the CPU, which costs 1.7–3 s per reply before the first word. A smaller hearing model would free GPU memory for them.
 - Speaking explanations in other languages.
 - True full duplex, through an Arabic fine-tune of a full-duplex model.
 

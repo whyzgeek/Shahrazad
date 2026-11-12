@@ -175,11 +175,19 @@ The frontend is one static file, `index.html`, with no build step or external li
 
 - **Microphone:** an inline AudioWorklet downsamples to 16 kHz mono and sends 80 ms frames of PCM16 (1280 samples). Echo cancellation, noise suppression and automatic gain are on.
 - **Secure context:** browsers only allow the microphone on HTTPS or `localhost`. The page is reached through a self-signed HTTPS address on the local network, or an SSH tunnel to `localhost:8791`.
-- **Controls:** hold the button or the space bar to talk, with a 5-minute limit per turn. A text box allows typing instead, and "New conversation" clears the history.
-- **Display:** each tutor message shows the reply, then the vowelled text the voice received, then the time to first audio.
-- **Exchanges and order:** each exchange (what the learner said, any article or video it opened, and the reply) is one numbered block, #1, #2 and so on, numbered when the server saves it. Each correction card shows the number of the exchange it came from; clicking the number scrolls to that exchange and highlights it. The conversation and the corrections always share one order: newest at the bottom (the default) or at the top. `TUTOR_NEWEST=top` in `.env` sets the default, and the button at the top right changes it for that browser, which remembers the choice.
+- **Controls:** hold the button or the space bar to talk, with a 5-minute limit per turn. "Tap to talk" switches to tap once to start and once to stop. A text box allows typing instead, and "New conversation" starts a fresh one. The talk button shows what the tutor is doing (listening, thinking, speaking), and while it thinks or speaks a Stop button (or Esc) ends the reply.
+- **Welcome:** an empty conversation shows a short explanation and three ways to start: just talk, today's news from Al Jazeera, or a YouTube video.
+- **Display:** each tutor message is one Arabic line: the vowelled text as each sentence is spoken, and the rest as written until its turn comes. The `tashkeel` message carries the display text and how much of the written reply it covers (`covered`), so the two join without repeating words. "Vowel marks" hides the marks, for reading practice. Sentences the voice can't read (mostly Latin script) stay as written. The time to first audio is shown only with `TUTOR_DEBUG_LOG=1` or `?debug` in the address.
+- **Word meanings:** tapping any Arabic word in a reply shows its meaning in that sentence and its dictionary form, from one short brain request (`POST /gloss`), cached in the learner record.
+- **Translate:** under each reply, next to Replay. It asks the brain for an English translation (`POST /translate`).
+- **Status banner:** the page asks `GET /health` every 20 s. When a local part doesn't answer, or a cloud part has no key, a banner names it, in place of a page that seems frozen. Cloud parts are not called for this, since that would spend credit.
+- **Sidebar:** each conversation can be renamed (a chosen name is never replaced by a generated one) or deleted with its corrections. What the learner has practised stays in the record.
+- **Exchanges and order:** each exchange (what the learner said, any article or video it opened, and the reply) is one numbered block, #1, #2 and so on, numbered when the server saves it. Each correction card shows the number of the exchange it came from; clicking the number scrolls to that exchange and highlights it. The words each card corrects are underlined in what the learner said, and clicking them brings up the card. The match ignores vowel marks, punctuation and the usual spelling variants (أ إ آ ا, ى ي, ة ه); a correction that can't be found word for word in the transcript is counted next to "You" instead, as a link to its card. Dismissing a card removes its underline. The conversation and the corrections always share one order: newest at the bottom (the default) or at the top. `TUTOR_NEWEST=top` in `.env` sets the default, and the button at the top right changes it for that browser, which remembers the choice.
 - **Auto-scroll:** both panes follow new content, including height changes such as the Arabic font loading. Scrolling away to read earlier messages pauses that pane; scrolling back to the newest end, or starting a new exchange, resumes it.
-- **Playback:** WAV sentences are queued with the Web Audio API so they play back to back. Each tutor message has a Replay button, which speaks it again from its saved vowelled text.
+- **Playback:** WAV sentences are queued with the Web Audio API so they play back to back. Each tutor message has a Replay button, which speaks it again from its saved vowelled text. "Slower voice" plays at 0.8× through audio elements instead, which keep the pitch.
+- **Progress:** "Progress and all corrections" in the sidebar shows the estimated level, the rules being practised (with those due for a follow-up marked) and those learned, and every correction card across conversations, each with its lesson and a link back to its exchange (`GET /progress`). `GET /cards.csv` exports the cards for flashcard apps such as Anki: front, back, tags.
+- **Login:** with `TUTOR_PASSWORD` set, every route except `/login` and `/assets` needs a signed cookie (HMAC-SHA256 with a per-install secret in `data/.cookie_secret` and the password, valid 30 days, HttpOnly, SameSite=Strict). The WebSocket checks the same cookie, and always checks that a browser's `Origin` is the tutor's own address.
+- **Per-browser choices:** the order, tap to talk, slower voice and vowel marks are remembered by each browser.
 
 ### WebSocket protocol (`/ws`)
 
@@ -189,11 +197,16 @@ The frontend is one static file, `index.html`, with no build step or external li
 | Browser to server | Binary | 80 ms of PCM16 at 16 kHz |
 | Browser to server | `{"type":"stop"}` | The learner stopped talking |
 | Browser to server | `{"type":"text","text":…}` | Typed message |
-| Browser to server | `{"type":"reset"}` | Clear the conversation |
+| Browser to server | `{"type":"reset"}` | Start a new conversation |
+| Browser to server | `{"type":"switch","id":…}` | Open a saved conversation |
+| Browser to server | `{"type":"rename","id":…,"title":…}` | Rename a conversation |
+| Browser to server | `{"type":"delete","id":…}` | Delete a conversation and its corrections |
+| Browser to server | `{"type":"cancel"}` | Stop the reply (the Stop button) |
+| Browser to server | `{"type":"dismiss","id":…}` | Remove a correction the learner didn't make |
 | Server to browser | `partial` | Live transcript so far |
 | Server to browser | `final` | Final transcript |
 | Server to browser | `assistant` | Reply text so far |
-| Server to browser | `tashkeel` | Vowelled text spoken so far |
+| Server to browser | `tashkeel` | Vowelled text spoken so far (`text`), the reply as displayed (`display`) and how much of the written reply it covers (`covered`) |
 | Server to browser | `text_only` | A sentence was shown but not spoken |
 | Server to browser | `timing` | Stage timings for the turn |
 | Server to browser | `turn` | The saved turn's id, used by Replay, and its number in the session (`n`) |
@@ -220,6 +233,7 @@ Measured on an HP Z820 with two RTX 3060 12 GB cards, 125 GB RAM and a Xeon E5-2
 | Measure | Result |
 |---|---|
 | Time from end of speech to first audio | 5.0 s median, 4.6–6.3 s; 8.0 s on the first turn |
+| The same, November 2026, five spoken turns with corrections and longer replies | 6.8 s on the first turn, 7.2–9.3 s after (median 8.6 s). Gemma reads its new prompt for 1.7–3 s before the first word, because part of it runs on the CPU |
 | Transcript ready | 0.75 s |
 | Reply complete | about 1.6 s after end of speech |
 | Vowelling the first sentence | about 2.1 s |
@@ -270,6 +284,6 @@ The tutor needs both GPUs, so other GPU workloads have to be stopped first.
 - About 1 word in 50 can still get a wrong ending from Gemma's vowelling, and Spark reads what it is given.
 - Gemma can still make grammar errors of its own.
 - The possessive-phrase (إضافة) correction is unreliable.
-- There are no user accounts, and conversations are not saved. Only stage timings are logged.
+- There are no user accounts. `TUTOR_PASSWORD` sets one shared login; conversations, errors and progress are saved in one local learner record, so everyone using the same server shares it.
 
 See [ROADMAP.md](ROADMAP.md) for what comes next.

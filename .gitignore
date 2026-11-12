@@ -19,5 +19,7 @@ third_party/
 # Runtime
 run/
 data/
+!evals/data/
 certs/
 *.pem
+evals/.cache/

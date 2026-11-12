@@ -90,6 +90,21 @@ def clean_errors(text, found, source):
     return out
 
 
+async def ask_json(http, url, body, keys, timeout):
+    """A structured request, tried twice: a cloud provider occasionally returns broken or incomplete JSON."""
+    for attempt in (1, 2):
+        r = await http.post(url, json=providers.llm_body(body), headers=providers.LLM_HEADERS, timeout=timeout)
+        r.raise_for_status()
+        try:
+            data = json.loads(r.json()["choices"][0]["message"]["content"])
+            if isinstance(data, dict) and all(k in data for k in keys):
+                return data
+        except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+            pass
+        if attempt == 2:
+            raise ValueError("the brain returned no valid JSON twice")
+
+
 async def find_errors(text, last_tutor, http, llm_url, source, practising=()):
     """Returns (errors, concepts from `practising` the learner used correctly, level shown, whether they're struggling)."""
     user = (f"The tutor had just said: {last_tutor}\n\n" if last_tutor else "") + f"The learner said: {text}"
@@ -99,9 +114,7 @@ async def find_errors(text, last_tutor, http, llm_url, source, practising=()):
         user += "\n\nReturn an empty correct_uses list."
     body = {"messages": [{"role": "system", "content": PROMPT}, {"role": "user", "content": user}], "max_tokens": 500, "temperature": 0, "id_slot": 1,
             "chat_template_kwargs": {"enable_thinking": False}, "response_format": {"type": "json_schema", "json_schema": {"schema": SCHEMA}}}
-    r = await http.post(llm_url, json=providers.llm_body(body), headers=providers.LLM_HEADERS, timeout=90)
-    r.raise_for_status()
-    data = json.loads(r.json()["choices"][0]["message"]["content"])
+    data = await ask_json(http, llm_url, body, ("errors",), 90)
     errors = clean_errors(text, data["errors"], source)
     wrong_concepts = {e["concept"] for e in errors}
     said = f" {normal(text)} "
@@ -115,9 +128,7 @@ async def check_target(text, concept, http, llm_url):
     ask = f"An Arabic learner is practising this rule: {card['rule']}\nThe learner said: {text}\nDid they use this structure at all, and if so was it correct? Ignore missing vowel marks, and ignore mistakes unrelated to this rule."
     schema = {"type": "object", "properties": {"used": {"type": "boolean"}, "correct": {"type": "boolean"}}, "required": ["used", "correct"]}
     body = {"messages": [{"role": "user", "content": ask}], "max_tokens": 40, "temperature": 0, "id_slot": 1, "chat_template_kwargs": {"enable_thinking": False}, "response_format": {"type": "json_schema", "json_schema": {"schema": schema}}}
-    r = await http.post(llm_url, json=providers.llm_body(body), headers=providers.LLM_HEADERS, timeout=60)
-    r.raise_for_status()
-    d = json.loads(r.json()["choices"][0]["message"]["content"])
+    d = await ask_json(http, llm_url, body, ("used", "correct"), 60)
     return bool(d["correct"]) if d["used"] else None
 
 
@@ -137,6 +148,7 @@ class Learner:
             for col in columns:
                 if col.split()[0] not in have:
                     self.db.execute(f"ALTER TABLE {table} ADD COLUMN {col}")
+        self.db.execute("CREATE TABLE IF NOT EXISTS glosses(word TEXT, sentence TEXT, meaning TEXT, base TEXT, PRIMARY KEY(word, sentence))")
         self.db.execute("CREATE TABLE IF NOT EXISTS profile(id INTEGER PRIMARY KEY CHECK(id=1), score REAL DEFAULT 2.0, turns INTEGER DEFAULT 0, band TEXT DEFAULT 'intermediate')")
         self.db.execute("INSERT OR IGNORE INTO profile(id) VALUES(1)")
         self.db.execute("UPDATE concepts SET status='practising', due_at=COALESCE(due_at, ?) WHERE status='new'", (time.time(),))
@@ -170,7 +182,8 @@ class Learner:
         return self.db.execute("SELECT COUNT(*) FROM turns WHERE session=?", (sid,)).fetchone()[0]
 
     def session_turns(self, sid):
-        return [dict(r) for r in self.db.execute("SELECT id, said, reply FROM turns WHERE session=? ORDER BY id", (sid,))]
+        rows = self.db.execute("SELECT id, said, reply, spoken FROM turns WHERE session=? ORDER BY id", (sid,))
+        return [{**dict(r), "spoken": " ".join(json.loads(r["spoken"])) if r["spoken"] else ""} for r in rows]
 
     def turn_for_replay(self, turn_id, sid):
         row = self.db.execute("SELECT reply, spoken FROM turns WHERE id=? AND session=?", (turn_id, sid)).fetchone()
@@ -179,6 +192,52 @@ class Learner:
     def session_errors(self, sid):
         rows = self.db.execute("SELECT e.id, e.turn, e.wrong, e.correct, e.concept FROM errors e JOIN turns t ON t.id=e.turn WHERE t.session=? AND e.dismissed=0 ORDER BY e.id", (sid,)).fetchall()
         return [{"id": r["id"], "turn": r["turn"], "wrong": r["wrong"], "right": r["correct"], "key": r["concept"], "concept": CONCEPTS.get(r["concept"], r["concept"]), "reminder": card_view(r["concept"], self.band())["reminder"] if r["concept"] in CARDS else "", "tracked": True} for r in rows]
+
+    def rename_session(self, sid, title):
+        """A name the learner chose: marked as named, so it's never replaced by a generated one."""
+        row = self.db.execute("SELECT state FROM sessions WHERE id=?", (sid,)).fetchone()
+        if not row:
+            return
+        state = json.loads(row["state"]) if row["state"] else {}
+        state["titled"] = True
+        self.db.execute("UPDATE sessions SET title=?, state=? WHERE id=?", (title, json.dumps(state, ensure_ascii=False), sid))
+        self.db.commit()
+
+    def delete_session(self, sid):
+        """Remove a conversation and its corrections. What the learner has practised (the concepts) stays."""
+        turns = [r[0] for r in self.db.execute("SELECT id FROM turns WHERE session=?", (sid,))]
+        self.db.executemany("DELETE FROM errors WHERE turn=?", [(t,) for t in turns])
+        self.db.execute("DELETE FROM turns WHERE session=?", (sid,))
+        self.db.execute("DELETE FROM sessions WHERE id=?", (sid,))
+        self.db.commit()
+
+    def gloss(self, word, sentence):
+        row = self.db.execute("SELECT meaning, base FROM glosses WHERE word=? AND sentence=?", (word, sentence)).fetchone()
+        return dict(row) if row else None
+
+    def save_gloss(self, word, sentence, meaning, base):
+        self.db.execute("INSERT OR REPLACE INTO glosses VALUES(?,?,?,?)", (word, sentence, meaning, base))
+        self.db.commit()
+
+    def progress(self):
+        """Everything the progress view shows: level, what's being practised or learned, and recent corrections."""
+        p = self.db.execute("SELECT score, turns, band FROM profile WHERE id=1").fetchone()
+        now = time.time()
+        concepts = [{"key": r["concept"], "title": CONCEPTS.get(r["concept"], r["concept"]), "status": r["status"], "times": r["times"],
+                     "last_seen": r["last_seen"], "due": bool(r["due_at"] and r["due_at"] <= now), "due_at": r["due_at"]}
+                    for r in self.db.execute("SELECT * FROM concepts ORDER BY last_seen DESC")]
+        counts = self.db.execute("SELECT (SELECT COUNT(*) FROM turns) AS turns, (SELECT COUNT(DISTINCT session) FROM turns) AS sessions").fetchone()
+        return {"band": p["band"], "score": round(p["score"], 2), "turns": counts["turns"], "sessions": counts["sessions"],
+                "practising": [c for c in concepts if c["status"] == "practising"], "learned": [c for c in concepts if c["status"] == "learned"]}
+
+    def all_errors(self, limit=1000):
+        """Every correction card, newest first, with the conversation it came from."""
+        rows = self.db.execute("""SELECT e.id, e.turn, e.at, e.wrong, e.correct, e.concept, s.id AS session, s.title FROM errors e
+            JOIN turns t ON t.id=e.turn JOIN sessions s ON s.id=t.session WHERE e.dismissed=0 ORDER BY e.id DESC LIMIT ?""", (limit,)).fetchall()
+        band = self.band()
+        return [{"id": r["id"], "turn": r["turn"], "at": r["at"], "wrong": r["wrong"], "right": r["correct"], "key": r["concept"],
+                 "concept": CONCEPTS.get(r["concept"], r["concept"]), "reminder": card_view(r["concept"], band)["reminder"] if r["concept"] in CARDS else "",
+                 "session": r["session"], "title": r["title"]} for r in rows]
 
     def end_session(self, sid):
         self.db.execute("UPDATE sessions SET ended=? WHERE id=?", (time.time(), sid))

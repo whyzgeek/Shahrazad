@@ -1,5 +1,5 @@
 #!/bin/bash
-# Starts Shahrazad: the local model processes it needs, then the tutor. Each stops by itself after TUTOR_MAX_HOURS (default 8).
+# Starts Shahrazad: the local model processes it needs, then the tutor. Each stops by itself after TUTOR_MAX_HOURS (default 8; 0 means never).
 # Settings come from .env. A part set to cloud (SHAHRAZAD_BRAIN, SHAHRAZAD_HEARING, SHAHRAZAD_VOICE) starts nothing locally.
 # Usage: scripts/start.sh
 cd "$(dirname "$0")/.." || exit 1

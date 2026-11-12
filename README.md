@@ -70,7 +70,7 @@ To use the tutor from other devices on your network, add `--lan`. If you already
 scripts/start.sh
 ```
 
-Open `http://localhost:8791`, allow the microphone, then hold the button or the space bar while you speak. `scripts/stop.sh` shuts everything down. Every process also stops by itself after 8 hours; change `TUTOR_MAX_HOURS` in `.env` to adjust that.
+Open `http://localhost:8791`, allow the microphone, then hold the button or the space bar while you speak (or switch on "Tap to talk"). Tap any word in a reply for its meaning. `scripts/stop.sh` shuts everything down. Every process also stops by itself after 8 hours; change `TUTOR_MAX_HOURS` in `.env` to adjust that.
 
 Browsers only allow the microphone on `localhost` or HTTPS. `./install.sh --lan` sets up HTTPS so other devices can open the tutor at `https://<server-address>:8791`; accept the browser's warning about the self-signed certificate. An SSH tunnel to `localhost:8791` also works.
 
@@ -87,7 +87,8 @@ Settings live in `.env`, which the installer creates from [`.env.example`](.env.
 | `CLOUD_VOICE_NAME` | `ara` (default), `eve` | The cloud voice |
 | `TUTOR_NEWEST` | `bottom` (default) or `top` | Where new messages and corrections appear. Each browser can also switch it with the button at the top right |
 | `TUTOR_HOST`, `TUTOR_PORT` | address, port | Where the tutor is served (`./install.sh --lan` sets these up with HTTPS) |
-| `TUTOR_MAX_HOURS` | hours | Every process stops by itself after this long |
+| `TUTOR_PASSWORD` | a password | A login for the page and its WebSocket, remembered by each browser for 30 days. Empty means no login. Set one before serving on the LAN, especially with cloud parts, which spend credit |
+| `TUTOR_MAX_HOURS` | hours | Every process stops by itself after this long. `0` keeps them running until `scripts/stop.sh` |
 | `TUTOR_DEBUG_LOG` | `1` to turn on | Saves what was said and replied, for diagnosing problems |
 
 Restart with `scripts/stop.sh` and `scripts/start.sh` after changing `.env`.

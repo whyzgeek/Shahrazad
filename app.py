@@ -4,12 +4,12 @@ Browser mic -> Voxtral (vLLM) -> Gemma 4 (llama-server) -> Spark voice (spark_se
 Any of the three can run in the cloud instead, through one OpenRouter key: see tools/providers.py.
 Binds to localhost by default; there is no login, so don't expose it directly. Started by scripts/start.sh.
 """
-import array, asyncio, base64, dataclasses, difflib, json, os, re, time
+import array, asyncio, base64, csv, dataclasses, difflib, hashlib, hmac, io, json, os, re, secrets, time, urllib.parse
 from pathlib import Path
 
 import httpx, uvicorn, websockets
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import Body, FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from tools import learner, youtube
@@ -55,6 +55,88 @@ LOG = learner.DB_PATH.with_name(f"sessions_timing{LOG_SUFFIX}.jsonl")
 app = FastAPI()
 app.mount("/assets", StaticFiles(directory=ROOT / "assets"), name="assets")
 
+# ------------------------------------------------------------ login
+# One shared password (TUTOR_PASSWORD in .env) for the page and the WebSocket. Without it there is no login, as before.
+PASSWORD = os.environ.get("TUTOR_PASSWORD", "")
+COOKIE, COOKIE_DAYS = "shahrazad", 30
+
+
+def cookie_key():
+    """A secret made once per install, mixed with the password: changing the password logs every browser out."""
+    f = learner.DB_PATH.with_name(".cookie_secret")
+    if not f.exists():
+        f.parent.mkdir(exist_ok=True)
+        f.write_bytes(secrets.token_bytes(32))
+        f.chmod(0o600)
+    return hashlib.sha256(f.read_bytes() + PASSWORD.encode()).digest()
+
+
+KEY = cookie_key() if PASSWORD else b""
+
+
+def make_cookie():
+    until = str(int(time.time()) + COOKIE_DAYS * 86400)
+    return until + "." + hmac.new(KEY, until.encode(), "sha256").hexdigest()
+
+
+def logged_in(cookies):
+    if not PASSWORD:
+        return True
+    until, _, sig = cookies.get(COOKIE, "").partition(".")
+    return until.isdigit() and int(until) > time.time() and hmac.compare_digest(sig, hmac.new(KEY, until.encode(), "sha256").hexdigest())
+
+
+def same_origin(headers):
+    """A browser always sends Origin with a WebSocket: it must be this page, so another site can't open the tutor's
+    WebSocket with the learner's cookie. Non-browser clients send none."""
+    origin = headers.get("origin")
+    return not origin or urllib.parse.urlparse(origin).netloc == headers.get("host")
+
+
+@app.middleware("http")
+async def require_login(request: Request, call_next):
+    path = request.url.path
+    if PASSWORD and path not in ("/login", "/favicon.ico") and not path.startswith("/assets/") and not logged_in(request.cookies):
+        return RedirectResponse("login", status_code=303) if path == "/" else JSONResponse({"error": "login required"}, status_code=401)
+    return await call_next(request)
+
+
+def login_page(error=""):
+    note = f'<p class="err">{error}</p>' if error else ""
+    return HTMLResponse(f"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Shahrazad</title>
+<link rel="icon" href="assets/favicon.ico"><style>:root{{--bg:#f7f5f0;--fg:#1f1f1c;--mut:#6b6960;--line:#ddd8cc;--card:#fff;--acc:#0f6b5c;--err:#b3401f}}
+@media (prefers-color-scheme:dark){{:root{{--bg:#191a18;--fg:#ecebe6;--mut:#a3a197;--line:#35362f;--card:#232420;--acc:#2f8f7d;--err:#e08a6a}}}}
+body{{margin:0;min-height:100dvh;display:grid;place-items:center;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif}}
+form{{width:min(340px,calc(100vw - 32px));text-align:center}}img{{width:72px;height:72px;border-radius:50%}}h1{{font-size:20px;margin:10px 0 18px}}
+input,button{{width:100%;font:inherit;padding:10px 12px;border-radius:8px;box-sizing:border-box}}input{{border:1px solid var(--line);background:var(--card);color:var(--fg)}}
+button{{margin-top:10px;border:0;background:var(--acc);color:#fff;cursor:pointer}}.err{{color:var(--err);font-size:14px}}</style>
+<form method="post" action="login"><img src="assets/logo.png" alt=""><h1>Shahrazad</h1>{note}
+<input type="password" name="password" placeholder="Password" autofocus autocomplete="current-password"><button>Log in</button></form></html>""")
+
+
+@app.get("/login")
+async def login_form():
+    return login_page()
+
+
+@app.post("/login")
+async def login(request: Request):
+    given = urllib.parse.parse_qs((await request.body()).decode(errors="replace")).get("password", [""])[0]
+    if not PASSWORD or hmac.compare_digest(given.encode(), PASSWORD.encode()):
+        r = RedirectResponse(".", status_code=303)
+        if PASSWORD:
+            r.set_cookie(COOKIE, make_cookie(), max_age=COOKIE_DAYS * 86400, httponly=True, samesite="strict", secure=request.url.scheme == "https")
+        return r
+    await asyncio.sleep(1)   # slows down guessing
+    return login_page("That password isn't right.")
+
+
+@app.get("/logout")
+async def logout():
+    r = RedirectResponse("login" if PASSWORD else ".", status_code=303)
+    r.delete_cookie(COOKIE)
+    return r
+
 ARABIC = re.compile(r"[ء-ي]")
 LATIN = re.compile(r"[A-Za-z]")
 DIAC = re.compile(r"[ً-ْٰ]")
@@ -90,6 +172,21 @@ def split_sentences(t):
             out[-1] += " " + carry
         else:
             out.append(carry)
+    return out
+
+
+def complete_sentences(t):
+    """Like split_sentences, for text that is still arriving: only sentences that can no longer change.
+    The last piece may be unfinished, and a short fragment waits for the sentence it will join."""
+    parts = [p.strip() for p in re.split(r"(?<=[.!؟?؛\n])\s+", t) if p.strip()][:-1]
+    out, carry = [], ""
+    for p in parts:
+        p = (carry + " " + p).strip() if carry else p
+        carry = ""
+        if len(p.split()) <= 2:
+            carry = re.sub(r"[.!]+$", "،", p)
+        else:
+            out.append(p)
     return out
 
 
@@ -322,6 +419,7 @@ class Session:
         self.history = []
         self.vox = self.vox_rx = self.reply = self.final = self.roll_task = None
         self.ear = None   # cloud hearing for the current turn
+        self.warm = None  # background request that loads this session's prompt into the local model's cache
         self.parts, self.pending, self.rolling, self.samples, self.level, self.quiet = [], [], False, 0, 0.0, 0
         self.gen = 0
         self.ctx = Context(registry=REGISTRY, http=http)
@@ -376,9 +474,28 @@ class Session:
 
     async def send_loaded(self):
         s = self.ctx.subject or self.saved_subject
-        await self.send(type="session", id=self.session_id, turns=LEARNER.session_turns(self.session_id), errors=LEARNER.session_errors(self.session_id),
+        turns = [{**t, "spoken": t["spoken"] if all(speakable(x) for x in split_sentences(t["reply"])) else ""} for t in LEARNER.session_turns(self.session_id)]
+        await self.send(type="session", id=self.session_id, turns=turns, errors=LEARNER.session_errors(self.session_id),
                         subject={"kind": s.kind, "title": s.title, "url": s.url, "section": s.index + 1, "sections": len(s.sections)} if s else None)
         await self.send_sessions()
+        self.warm_up()
+
+    def warm_up(self):
+        """Load this session's prompt into the local model's cache before the learner speaks, so the first reply isn't slow."""
+        if providers.BRAIN == "cloud":
+            return
+        off = {"chat_template_kwargs": {"enable_thinking": False}, "max_tokens": 1}
+
+        async def run():
+            try:
+                msgs = [{"role": "system", "content": self.system_prompt()}] + self.history + [{"role": "user", "content": "."}]
+                await self.http.post(LLM, json={"messages": msgs, "id_slot": 0, "tools": self.tool_schemas(), **off}, timeout=60)   # the same tools as a real turn, or the cached prompt differs from its first lines
+                await self.http.post(LLM, json={"messages": [{"role": "user", "content": VOWEL_PROMPT + "مرحبا"}], "id_slot": 1, "temperature": 0, **off}, timeout=60)
+            except Exception:
+                pass   # only a head start: the real turn works without it
+        if self.warm and not self.warm.done():
+            self.warm.cancel()
+        self.warm = asyncio.create_task(run())
 
     async def resume_latest(self):
         latest = LEARNER.latest_session()
@@ -674,20 +791,74 @@ class Session:
 
     async def respond(self, user, t_end, source="typed"):
         gen = self.gen
+        if self.warm and not self.warm.done():
+            self.warm.cancel()   # the real turn takes over
         self.history.append({"role": "user", "content": user})
         self.history = self.history[-HISTORY_MESSAGES:]
         t = {"stt_s": round(time.time() - t_end, 3)}
         full, first_token, shown = "", None, []
+        queued, fixes, voice_q = [], [], asyncio.Queue()   # sentences handed to the voice, spelling fixes, and the voice's queue
+        display = []   # the reply as the page shows it: vowelled where spoken, as written where not
+        covered = 0    # how much of the written reply (with spelling fixes) the display already replaces
+
+        def cover(piece):
+            """Move past this piece in the written reply. Merged fragments aren't exact substrings, but their end is."""
+            nonlocal covered
+            tail = piece[-20:]
+            i = fixed_text(full).find(tail, covered)
+            if i >= 0:
+                covered = i + len(tail)
         self.notice, self.tool_notes = "", []
         self.turn_no += 1
         target, self.pending_target = self.pending_target, None
         review = self.pick_review()
 
+        def fixed_text(text):
+            for old, new in fixes:
+                text = text.replace(old, new, 1)
+            return text
+
         async def on_text(text):
             nonlocal first_token, full
             first_token = first_token or time.time()
             full = text
-            await self.send(type="assistant", text=text)
+            await self.send(type="assistant", text=fixed_text(text))
+            for sentence in complete_sentences(text)[len(queued):]:   # speak each sentence as soon as it's finished
+                queued.append(sentence)
+                voice_q.put_nowait(sentence)
+
+        async def voice():
+            """Vowel and speak queued sentences in order, while the rest of the reply is still being written."""
+            while True:
+                s = await voice_q.get()
+                if s is None:
+                    return
+                if not speakable(s):
+                    display.append(s)
+                    cover(s)
+                    await self.send(type="text_only", text=s)
+                    await self.send(type="tashkeel", text=" ".join(shown), display=" ".join(display), covered=covered)
+                    continue
+                t0 = time.time()
+                vowelled = await vowelize(clean_text(s), self.http)
+                t1 = time.time()
+                shown.append(vowelled)
+                display.append(vowelled)
+                fixed = apply_spelling(s, vowelled)
+                if fixed != s:
+                    fixes.append((s, fixed))
+                    await self.send(type="assistant", text=fixed_text(full))
+                cover(fixed)
+                await self.send(type="tashkeel", text=" ".join(shown), display=" ".join(display), covered=covered)  # text: exactly what the voice is given
+                for part in split_long(vowelled):
+                    audio = await providers.synth(self.http, part)
+                    if gen != self.gen:
+                        return
+                    await self.ws.send_bytes(audio)
+                    if "end_of_speech_to_first_audio_s" not in t:
+                        t.update(first_vowel_s=round(t1 - t0, 3), first_voice_s=round(time.time() - t1, 3), end_of_speech_to_first_audio_s=round(time.time() - t_end, 3))
+
+        speaking = asyncio.create_task(voice())
 
         try:
             video = youtube.find_video(user)
@@ -716,9 +887,13 @@ class Session:
                 if notes:
                     # At the very end of the prompt, so everything before it stays in Gemma's cache.
                     msgs[-1] = {**msgs[-1], "content": msgs[-1]["content"] + "\n\n[Private note to the tutor, not from the learner. Never correct it or mention it. " + " ".join(notes) + "]"}
+                queued.clear(); shown.clear(); display.clear()   # each round writes its text from the start
+                covered = 0
                 text, calls = await stream_turn(msgs, self.http, self.tool_schemas() if round_no < MAX_TOOL_ROUNDS else None, on_text)
                 if not calls:
                     break
+                if queued:       # the tutor already said something before calling the tool
+                    announced = True
                 if not announced:
                     announced = True
                     await self.say(FILLER_SEARCH, gen)
@@ -727,29 +902,22 @@ class Session:
             self.notice, self.tool_notes = "", []
             t["llm_first_token_s"] = round((first_token or time.time()) - t_end, 3)
             t["llm_done_s"] = round(time.time() - t_end, 3)
-            for s in split_sentences(full):
-                if not speakable(s):
-                    await self.send(type="text_only", text=s)
-                    continue
-                t0 = time.time()
-                vowelled = await vowelize(clean_text(s), self.http)
-                t1 = time.time()
-                shown.append(vowelled)
-                fixed = apply_spelling(s, vowelled)
-                if fixed != s:
-                    full = full.replace(s, fixed, 1)
-                    await self.send(type="assistant", text=full)
-                await self.send(type="tashkeel", text=" ".join(shown))  # exactly what the voice is given
-                for part in split_long(vowelled):
-                    audio = await providers.synth(self.http, part)
-                    if gen != self.gen:
-                        return
-                    await self.ws.send_bytes(audio)
-                    if "end_of_speech_to_first_audio_s" not in t:
-                        t.update(first_vowel_s=round(t1 - t0, 3), first_voice_s=round(time.time() - t1, 3), end_of_speech_to_first_audio_s=round(time.time() - t_end, 3))
+            final = split_sentences(full)
+            if queued and len(final) >= len(queued) and final[len(queued) - 1] != queued[-1]:
+                # A short closing fragment joined the last sentence, which is already with the voice: say just the fragment.
+                voice_q.put_nowait(final[len(queued) - 1][len(queued[-1]):].strip())
+            for sentence in final[len(queued):]:
+                voice_q.put_nowait(sentence)
+            voice_q.put_nowait(None)
+            await speaking
+            full = fixed_text(full)
+            if gen != self.gen:
+                return
         except asyncio.CancelledError:
             self.history.append({"role": "assistant", "content": full})  # keep what was said before the interruption
             raise
+        finally:
+            speaking.cancel()
         last_tutor = next((m["content"] for m in reversed(self.history[:-1]) if m["role"] == "assistant"), "")
         self.history.append({"role": "assistant", "content": full})
         turn_id = LEARNER.add_turn(self.session_id, source, user, full, self.ctx.subject.title if self.ctx.subject else None, shown)
@@ -785,6 +953,7 @@ class Session:
             except Exception as e:
                 print(f"titling failed: {type(e).__name__}", flush=True)
         self.save()
+        self.warm_up()   # read this reply into the cache while the learner listens and answers
 
     async def plan_questions(self):
         """Prepare specific questions after a subject opens, once its first reply is spoken. Uses the discussion's cached slot."""
@@ -807,7 +976,24 @@ class Session:
 
 @app.get("/")
 async def index():
-    return HTMLResponse((ROOT / "index.html").read_text().replace('data-newest="bottom"', f'data-newest="{NEWEST}"', 1))
+    page = (ROOT / "index.html").read_text().replace('data-newest="bottom"', f'data-newest="{NEWEST}"', 1)
+    page = page.replace('data-login="0"', f'data-login="{int(bool(PASSWORD))}"', 1)
+    return HTMLResponse(page.replace('data-debug="0"', f'data-debug="{int(bool(DEBUG_LOG))}"', 1))
+
+
+@app.get("/progress")
+async def progress():
+    return JSONResponse({**LEARNER.progress(), "cards": LEARNER.all_errors()})
+
+
+@app.get("/cards.csv")
+async def cards_csv():
+    """All correction cards for flashcard apps such as Anki: front, back, tags."""
+    out = io.StringIO()
+    w = csv.writer(out)
+    for e in LEARNER.all_errors():
+        w.writerow([e["wrong"], f"{e['right']}<br><small>{e['reminder']}</small>" if e["reminder"] else e["right"], e["key"]])
+    return Response(out.getvalue(), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": 'attachment; filename="shahrazad-cards.csv"'})
 
 
 @app.get("/lesson/{concept}")
@@ -817,8 +1003,75 @@ async def lesson(concept: str):
     return JSONResponse(learner.card_view(concept, LEARNER.band()))
 
 
+async def part_ok(mode, url):
+    """Whether one part answers. Cloud parts only need the key: checking them would spend credit."""
+    if mode == "cloud":
+        return bool(providers.KEY)
+    try:
+        async with httpx.AsyncClient() as h:
+            return (await h.get(url, timeout=2)).status_code == 200
+    except Exception:
+        return False
+
+
+@app.get("/health")
+async def health():
+    port = lambda var, default: f"http://127.0.0.1:{os.environ.get(var, default)}/health"
+    names = {"brain": "Gemma", "hearing": "Voxtral", "voice": "Spark"}
+    checks = {"brain": (providers.BRAIN, port("GEMMA_PORT", "18099")), "hearing": (providers.HEARING, port("VOXTRAL_PORT", "18098")), "voice": (providers.VOICE, port("SPARK_PORT", "18096"))}
+    oks = await asyncio.gather(*(part_ok(m, u) for m, u in checks.values()))
+    return JSONResponse({k: {"ok": ok, "mode": checks[k][0], "name": names[k]} for k, ok in zip(checks, oks)})
+
+
+GLOSS_SCHEMA = {"type": "object", "properties": {"meaning": {"type": "string"}, "base": {"type": "string"}}, "required": ["meaning", "base"]}
+
+
+async def brain_once(prompt, max_tokens, schema=None):
+    """One short request outside the conversation, on the vowelling slot so the discussion's cache stays."""
+    body = {"messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens, "temperature": 0, "id_slot": 1, "chat_template_kwargs": {"enable_thinking": False}}
+    if schema:
+        body["response_format"] = {"type": "json_schema", "json_schema": {"schema": schema}}
+    async with httpx.AsyncClient() as h:
+        r = await h.post(LLM, json=providers.llm_body(body), headers=LH, timeout=60)
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"].strip()
+
+
+@app.post("/gloss")
+async def gloss(req: dict = Body(...)):
+    """The meaning of one word in a tutor's reply, in its sentence. Cached, so a word asked about twice costs nothing."""
+    word, sentence = DIAC.sub("", str(req.get("word", ""))).strip()[:40], str(req.get("sentence", ""))[:600]
+    if not ARABIC.search(word):
+        return JSONResponse({"error": "not an Arabic word"}, status_code=400)
+    hit = LEARNER.gloss(word, sentence)
+    if hit:
+        return JSONResponse(hit)
+    ask = (f"Arabic sentence: «{sentence}»\nWhat does the word «{word}» mean in this sentence? Reply in JSON. meaning: its English meaning here, "
+           "in at most 8 words. base: its dictionary form in Arabic with full vowel marks (for a verb, the past tense; for a noun, the singular without ال).")
+    try:
+        d = json.loads(await brain_once(ask, 80, GLOSS_SCHEMA))
+    except Exception as e:
+        return JSONResponse({"error": type(e).__name__}, status_code=502)
+    LEARNER.save_gloss(word, sentence, d["meaning"], d["base"])
+    return JSONResponse({"meaning": d["meaning"], "base": d["base"]})
+
+
+@app.post("/translate")
+async def translate(req: dict = Body(...)):
+    text = DIAC.sub("", str(req.get("text", "")))[:2000]
+    if not ARABIC.search(text):
+        return JSONResponse({"error": "nothing to translate"}, status_code=400)
+    try:
+        return JSONResponse({"english": await brain_once("Translate this Arabic into natural English. Reply with the translation only.\n\n" + text, 400)})
+    except Exception as e:
+        return JSONResponse({"error": type(e).__name__}, status_code=502)
+
+
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
+    if not same_origin(ws.headers) or not logged_in(ws.cookies):
+        await ws.close(code=1008)   # refused before the connection opens
+        return
     await ws.accept()
     async with httpx.AsyncClient() as http:
         s = Session(ws, http)
@@ -852,6 +1105,23 @@ async def ws_endpoint(ws: WebSocket):
                     s.reply = asyncio.create_task(s.replay(int(d["turn"])))
                 elif d["type"] == "dismiss":
                     LEARNER.dismiss(int(d["id"]))
+                elif d["type"] == "cancel":   # the learner pressed Stop
+                    await s.cancel_reply()
+                elif d["type"] == "rename":
+                    title = " ".join(str(d.get("title", "")).split())[:80]
+                    if title:
+                        if int(d["id"]) == s.session_id:
+                            s.title, s.titled = title, True
+                            s.save()
+                        else:
+                            LEARNER.rename_session(int(d["id"]), title)
+                        await s.send_sessions()
+                elif d["type"] == "delete":
+                    sid = int(d["id"])
+                    if sid == s.session_id:
+                        await s.new_session()
+                    LEARNER.delete_session(sid)
+                    await s.send_sessions()
         except (WebSocketDisconnect, RuntimeError):
             pass
         finally:
