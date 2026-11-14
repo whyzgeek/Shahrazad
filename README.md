@@ -74,7 +74,7 @@ Open `http://localhost:8791`, allow the microphone, then hold the button or the 
 
 Browsers only allow the microphone on `localhost` or HTTPS. `./install.sh --lan` sets up HTTPS so other devices can open the tutor at `https://<server-address>:8791`; accept the browser's warning about the self-signed certificate. An SSH tunnel to `localhost:8791` also works.
 
-The server has no login, so anyone who can reach that address can use the tutor. Keep it on a network you trust. With any part in the cloud, they would also be spending your OpenRouter credit.
+Without `TUTOR_PASSWORD` in `.env`, anyone who can reach that address can use the tutor, and with any part in the cloud they would also be spending your OpenRouter credit. Set a password, or keep it on a network you trust.
 
 ## Configuration
 

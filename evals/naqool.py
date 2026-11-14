@@ -9,7 +9,7 @@ real system prompt, level note and tools, at both levels the tutor adapts to.
 import argparse, asyncio, json
 import _setup
 import httpx, app
-from tools import learner, providers
+from tools import brain, learner, providers
 
 p = argparse.ArgumentParser()
 p.add_argument("--repeat", type=int, default=4, help="how many times each correct sentence is asked")
@@ -23,7 +23,7 @@ async def reply(h, said, band):
 
     async def ignore(_):
         pass
-    text, _ = await app.stream_turn(msgs, h, app.REGISTRY.schemas(list(app.REGISTRY.tools)), ignore)
+    text, _ = await brain.turn(h, msgs, app.REGISTRY.schemas(list(app.REGISTRY.tools)), ignore)
     return text.strip()
 
 

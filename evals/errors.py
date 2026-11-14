@@ -10,11 +10,12 @@ Uses the tutor's own find_errors(), so the prompt and the filtering are the real
 import argparse, asyncio, json
 import _setup
 import httpx
-from tools import learner, providers
+from tools import brain, learner, providers
 
 p = argparse.ArgumentParser()
 p.add_argument("--url", default=providers.LLM_URL)
 args = p.parse_args()
+brain.URL = args.url
 CASES = json.loads((_setup.DATA / "errors.json").read_text())
 
 
@@ -23,7 +24,7 @@ async def main():
     async with httpx.AsyncClient() as h:
         for c in CASES:
             try:
-                found, *_ = await learner.find_errors(c["said"], c["tutor_before"], h, args.url, "voice")
+                found, *_ = await learner.find_errors(c["said"], c["tutor_before"], h, "voice")
             except Exception as e:
                 failed += 1
                 print(f"FAILED {type(e).__name__}: {c['said'][:40]}", flush=True)

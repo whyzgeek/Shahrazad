@@ -1,5 +1,5 @@
 """GPU planning, the cloud request format, and the routes that need no model."""
-import configure
+import configure, pytest
 from fastapi.testclient import TestClient
 from tools import providers
 import app
@@ -41,20 +41,64 @@ def test_llm_body_cloud(monkeypatch):
     assert b["response_format"]["json_schema"]["name"] == "out"
 
 
-client = TestClient(app.app)
+@pytest.fixture
+def client():
+    with TestClient(app.app) as c:   # runs the app's startup, as uvicorn does
+        yield c
 
 
-def test_page_flags():
+def test_page_flags(client):
     page = client.get("/").text
     assert 'data-debug="0"' in page and 'data-newest="' in page
 
 
-def test_health_reports_every_part():
+def test_health_reports_every_part(client):
     h = client.get("/health").json()
     assert set(h) == {"brain", "hearing", "voice"}
     assert all(p["ok"] is False and p["mode"] == "local" for p in h.values())   # nothing is running in the test
 
 
-def test_gloss_and_translate_reject_empty_input():
+def test_gloss_and_translate_reject_empty_input(client):
     assert client.post("/gloss", json={"word": "hello", "sentence": ""}).status_code == 400
     assert client.post("/translate", json={"text": "hello"}).status_code == 400
+
+
+def test_hearing_choice(monkeypatch, client):
+    """Which hearing is in use comes from the settings in one place, and the page and log name it."""
+    import importlib
+    try:
+        monkeypatch.setenv("SHAHRAZAD_HEARING", "cloud")
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+        assert importlib.reload(providers).PARTS["hearing"].health == ""
+        assert client.get("/health").json()["hearing"]["mode"] == "cloud"
+        monkeypatch.setenv("SHAHRAZAD_HEARING", "whisper")
+        with pytest.raises(SystemExit):
+            importlib.reload(providers)
+    finally:
+        for var in ("SHAHRAZAD_HEARING", "OPENROUTER_API_KEY"):
+            monkeypatch.delenv(var)
+        importlib.reload(providers)
+    assert providers.PARTS["hearing"].name == "Voxtral" and "hearing: Voxtral (local)" in providers.describe()
+
+
+def test_clip_ear_cuts_at_pauses_and_keeps_order(monkeypatch):
+    """Speech, a pause, more speech: two clips, transcribed separately and joined in order."""
+    import array, asyncio, random
+    from tools import hearing
+    heard = []
+
+    async def transcribe(http, pcm):
+        heard.append(len(pcm))
+        n = len(heard)
+        await asyncio.sleep(0.01 * (3 - n))   # the first clip finishes last
+        return f"clip{n}"
+    monkeypatch.setattr(providers, "transcribe", transcribe)
+    monkeypatch.setattr(hearing, "CAPTIONS", False)
+    chunk = lambda loud: array.array("h", [random.randint(-3000, 3000) if loud else 0 for _ in range(1600)]).tobytes()   # 0.1 s
+
+    async def go():
+        ear = hearing.ClipEar(None, lambda **m: asyncio.sleep(0))
+        for loud in [True] * 50 + [False] * 5 + [True] * 20:
+            await ear.add(chunk(loud))
+        return await ear.finish()
+    assert asyncio.run(go()) == "clip1 clip2" and len(heard) == 2

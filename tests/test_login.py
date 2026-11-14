@@ -9,7 +9,8 @@ import app
 def locked(monkeypatch):
     monkeypatch.setattr(app, "PASSWORD", "sesame")
     monkeypatch.setattr(app, "KEY", b"k" * 32)
-    return TestClient(app.app, base_url="https://testserver")
+    with TestClient(app.app, base_url="https://testserver") as c:
+        yield c
 
 
 def test_no_password_means_no_login():

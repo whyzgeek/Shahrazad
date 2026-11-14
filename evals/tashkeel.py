@@ -9,8 +9,9 @@ Uses the tutor's own vowelize(), with its safety nets. Sukun is ignored, and so 
 """
 import argparse, asyncio, json, re, statistics as st, time, unicodedata as ud
 import _setup
-import httpx, app
+import httpx
 from tools import providers
+from tools.vowels import vowelize
 
 p = argparse.ArgumentParser()
 p.add_argument("--paragraphs", type=int, default=40)
@@ -61,7 +62,7 @@ async def run(h, name, items):
     secs = []
     for it in items:
         t = time.time()
-        out = await app.vowelize(it["plain"], h)
+        out = await vowelize(it["plain"], h)
         secs.append(time.time() - t)
         s = score(it["gold"], out)
         if s is None:

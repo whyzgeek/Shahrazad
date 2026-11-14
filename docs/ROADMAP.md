@@ -31,7 +31,7 @@ Everything here runs without setup screens or extra questions, and the conversat
 - Automatic detection of when the learner starts and stops talking, with no button.
 - Lower delay, by vowelling and speaking each sentence while the reply is still being written (done).
 - A dedicated vowelling model. Tashkeel-v3 (0.2B) was tested in November 2026: about 40 times faster than Gemma on the CPU, but it doubled marks and letters on real tutor replies, and on SadeedDiac-25 it got 3.3% of case endings wrong against Gemma's 2.2% (8.9% of words against 4.5%). Gemma stays until a model beats it on case endings.
-- More of Gemma on the GPU. Its expert layers partly run on the CPU, which costs 1.7–3 s per reply before the first word. A smaller hearing model would free GPU memory for them.
+- More of Gemma on the GPU: a smaller hearing model would free GPU1 for Gemma, and replies would start about 2 s sooner. Audar-ASR-V1-Turbo did this but reacted to background noise in a live test, so it was removed (docs/ARCHITECTURE.md). A voice-activity filter in front of a clip model might help.
 - Speaking explanations in other languages.
 - True full duplex, through an Arabic fine-tune of a full-duplex model.
 

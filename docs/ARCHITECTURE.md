@@ -12,7 +12,7 @@ GPU numbers below describe the tested layout of two 12 GB cards. `scripts/config
 | Tutor reply, and adding tashkeel | Gemma 4 26B-A4B QAT + MTP draft head | llama-server | GPU0, with 17 layers of experts on the CPU |
 | Generate speech tokens | Arabic-TTS-Spark language model (converted to BF16 GGUF) | llama-server | GPU0 |
 | Turn speech tokens into audio | Spark BiCodec decoder | `spark_service.py` (PyTorch) | GPU0 |
-| Conversation logic | None | `app.py` (FastAPI) | CPU |
+| Conversation logic | None | `app.py` (FastAPI) and `tools/` (see [Code layout](#code-layout)) | CPU |
 | User interface | None | `index.html` in the browser | Learner's device |
 
 The interaction is push-to-talk with interruption: the learner holds a button or the space bar, and pressing it again while the tutor is speaking stops the reply. It is not full duplex, because the tutor does not listen while it speaks.
@@ -73,9 +73,11 @@ sequenceDiagram
   A-->>B: timing
 ```
 
-The complete reply is generated before vowelling starts. Gemma has two slots, one for the discussion and one for vowelling, so vowelling doesn't push the discussion out of its cache.
+Each sentence is vowelled and spoken as soon as it is complete, while the rest of the reply is still being written. Gemma has two slots, one for the discussion and one for vowelling, so vowelling doesn't push the discussion out of its cache.
 
 ### Text handling between the models
+
+These are in `tools/text.py` and `tools/vowels.py`.
 
 1. `split_sentences` splits the reply and merges one- or two-word fragments forward.
 2. `speakable` holds back sentences that are mostly not Arabic. These are shown on screen but not spoken, because the voice only reads Arabic.
@@ -89,7 +91,7 @@ Spark tends to keep generating silence after the sentence ends. After speech, th
 
 ### Long turns and long sentences
 
-A Voxtral session holds about 82 s. After 55 s, `app.py` waits for a pause, or forces it at 72 s, then finishes that session and starts another. Audio arriving meanwhile is held and sent afterwards, and the transcripts are joined.
+A Voxtral session holds about 82 s. After 55 s, `StreamEar` in `tools/hearing.py` waits for a pause, or forces it at 72 s, then finishes that session and starts another. Audio arriving meanwhile is held and sent afterwards, and the transcripts are joined.
 
 Spark stops at 18 s per sentence, about 30 words, so vowelled text over 20 words is sent in parts, split at commas where possible.
 
@@ -117,7 +119,7 @@ A conversation has a **current subject**: an article or a video. Tools are used 
 
 Tool results go into the system prompt instead of tool-role messages, because Gemma sometimes emits only its thinking marker right after a tool message. Results and subjects are marked as untrusted, and all tools are read-only.
 
-After a subject's first reply, Gemma prepares six questions from it: the main idea, why and what it means, larger ideas to argue about, and the learner's own views. They avoid small details, because the goal is practising Arabic, and where it fits they steer toward the structures this learner gets wrong. Every question, including the broader and personal ones, starts from something specific in the subject, so the discussion doesn't drift. Each turn offers the next one, for once the learner has answered the current question, and it can be adapted to what they just said. If the learner asks a side question, such as what a word means, the tutor answers briefly and returns to the question they were answering. When all six have been used, a fresh set is prepared for the same subject, avoiding the ones already asked.
+After a subject's first reply, Gemma prepares six questions from it: the main idea, why and what it means, larger ideas to argue about, and the learner's own views. They avoid small details, because the goal is practising Arabic, and where it fits they steer toward the structures this learner gets wrong. Every question, including the broader and personal ones, starts from something specific in the subject, so the discussion doesn't drift. Each turn offers the next one, for once the learner has answered the current question, and it can be adapted to what they just said. If the learner asks a side question, such as what a word means, the tutor answers briefly and returns to the question they were answering. When all six have been used, a fresh set is prepared for the same subject, avoiding the ones already asked and taken from parts of the material not yet discussed, rather than from side topics the talk has moved to. The tutor is told that the next question is how it brings a wandering conversation back to the subject. The questions, the title and the cache warm-up run as their own task after the reply: they used to be cancelled when the learner started talking again, before the questions were ready (about 10 s), so in practice none were prepared and the discussion followed every side topic. In a replay of a real 13-turn video discussion with a restart in the middle, the tutor now came back to the video three times in the last six turns, where before it never did. The subject is saved with the conversation, so it survives a restart.
 
 Opening a subject costs one slow turn, because Gemma has to read it: about 20 s for a 5,000-token video section on the test machine. The spoken "one moment" plays first, and later turns are cached.
 
@@ -216,15 +218,30 @@ The frontend is one static file, `index.html`, with no build step or external li
 
 ## Cloud parts
 
-Each of the three parts (brain, hearing, voice) is set to `local` or `cloud` in `.env`, independently. `tools/providers.py` is the only module that knows the difference; everything else builds the same llama.cpp-style requests as before.
+Each of the three parts (brain, hearing, voice) is set to `local` or `cloud` in `.env`, independently. `tools/providers.py` is the only module that reads these settings; everything else builds the same llama.cpp-style requests either way.
 
 | Part | Local path | Cloud path (OpenRouter) |
 |---|---|---|
 | Brain | `http://127.0.0.1:18099/v1/chat/completions` | `/api/v1/chat/completions`, the same Gemma 4 26B-A4B, limited to providers that return valid structured output. `llm_body()` only drops llama-server's own fields and names the model and providers, so the tutor behaves as it does locally |
-| Hearing | Voxtral WebSocket, streamed, with live captions and the 55 s session rollover | `CloudEar` cuts the turn into segments at pauses. Each finished segment is transcribed once at `/api/v1/audio/transcriptions`; the unfinished one is re-transcribed every 1.5 s for live captions |
+| Hearing | Voxtral WebSocket, streamed, with live captions and the 55 s session rollover (`StreamEar`) | `ClipEar` cuts the turn into segments at pauses. Each finished segment is transcribed once at `/api/v1/audio/transcriptions`; the unfinished one is re-transcribed every 1.5 s for live captions |
 | Voice | `POST /synth` on `spark_service.py`, WAV | `/api/v1/audio/speech`, Grok Voice Ara, MP3. The browser's `decodeAudioData` plays either |
 
 `scripts/start.sh` starts only the local processes that are needed. `scripts/configure.py` plans GPU placement for the local parts only, and when they don't fit it names the fewest parts to move, in this order: hearing first (the most GPU memory for little cost), then the brain, then the voice. `install.sh` skips the environments, llama.cpp build and model downloads that cloud parts don't need. Measurements and costs are in [CLOUD.md](CLOUD.md).
+
+## Code layout
+
+Each module does one job, and the choice between local and cloud parts is made once, in `tools/providers.py`, from a table of parts. The rest of the code calls the same functions whatever runs each part.
+
+| Module | Job |
+|---|---|
+| `app.py` | The web routes, login, and `Session`: one learner's conversation, from a heard turn to the spoken reply, the topic and the follow-ups |
+| `tools/providers.py` | Reads the part settings. `PARTS` names each part's model and health check; `transcribe()` and `synth()` pick the local or cloud service from a table, and `llm_body()` adapts brain requests for the cloud |
+| `tools/brain.py` | Every brain request: `ask`, `ask_json` (structured, retried once), `turn` (the streamed discussion with tool calls) and `warm` (cache warm-up). It owns the two llama-server slots |
+| `tools/hearing.py` | One turn's hearing behind one interface (`start`, `add`, `finish`, `close`): `StreamEar` for Voxtral, `ClipEar` for the cloud. `listen()` makes the one set in `.env` |
+| `tools/text.py`, `tools/vowels.py` | Sentence splitting and cleaning; vowelling and the checks that keep the tutor's own words |
+| `tools/learner.py` | The learner record (SQLite), error finding and the review schedule |
+| `tools/subjects.py`, `tools/youtube.py`, `tools/registry.py`, `tools/skills.py` | Topics: news, articles and videos, and the tools and skills the brain can use |
+| `spark_service.py` | Small local service for Spark's decoder, in its own Python environment |
 
 ## Hardware and performance
 
@@ -246,6 +263,20 @@ Measured on an HP Z820 with two RTX 3060 12 GB cards, 125 GB RAM and a Xeon E5-2
 | Gemma vowelling, 40 MSA paragraphs of SadeedDiac-25 | 2.1 % case-ending errors, 4.5 % word errors, ignoring sukun. 3 paragraphs had changed letters and are excluded |
 | Tutor corrections, 7 error types | 6 of 7 caught in a text-only test; 5 of 7 right through the full chain with synthetic speech |
 | Blind listening, 12 sentences with grammar-dependent endings | Spark marked wrong on 0 or 1, the earlier Habibi voice on 9 |
+
+### Smaller hearing tried: Audar-ASR-V1-Turbo (November 2026, removed)
+
+Measured on 60 human MSA clips from the Habibi benchmark and 34 learner sentences spoken by the tutor's voice, one clip at a time on a 12 GB card:
+
+| Model | Character error, human clips | Clips with no error | Learner mistakes written as said | GPU memory |
+|---|---|---|---|---|
+| Voxtral Mini 4B Realtime Arabic | 1.40 % | 44 of 60 | 9 of 20 | 10.8 GB (vLLM) |
+| Audar-ASR-V1-Turbo | 0.74 % | 53 of 60 | 8 of 20 | 4.5 GB |
+| Audar-ASR-V1-Flash | 3.4 % | 30 of 60 | 7 of 20 | 1.5 GB |
+| Qwen3-ASR 1.7B | 4.0 % | 31 of 60 | 8 of 20 | 3.9 GB |
+| Qwen3-ASR 0.6B | 5.7 % | 18 of 60 | 8 of 20 | 1.5 GB |
+
+With Audar on GPU1, Gemma could be split over both cards (3 expert layers on the CPU instead of 17), and first audio in the five-turn spoken eval fell from a median of 7.8 s to 5.7 s. In a live test with a real microphone, though, Audar reacted to background noise and sometimes wrote words that weren't said (the test clips above are clean). It was briefly an option, then removed, since a second local hearing path made setup more complex for a model that wasn't the default. A voice-activity filter in front of a clip model might make it worth another look.
 
 ## Adapting to other hardware
 
@@ -280,7 +311,7 @@ The tutor needs both GPUs, so other GPU workloads have to be stopped first.
 
 - The tutor is push-to-talk, not full duplex.
 - Explanations in other languages are text only.
-- Voxtral sometimes corrects a learner's mistake while transcribing, which hides it from the tutor. This has been seen once on synthetic speech and has not been measured on real learners.
+- Every hearing model tested sometimes writes a learner's mistake as correct Arabic, which hides it from the tutor. On 20 mistakes spoken by the tutor's own voice, Voxtral kept 9 and Audar-ASR-V1-Turbo 8 (some were likely corrected by the vowelling before the voice). Not yet measured on real learners.
 - About 1 word in 50 can still get a wrong ending from Gemma's vowelling, and Spark reads what it is given.
 - Gemma can still make grammar errors of its own.
 - The possessive-phrase (إضافة) correction is unreliable.

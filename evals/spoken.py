@@ -9,8 +9,9 @@ Run it against a test copy with its own learner record: the mistakes would other
 """
 import argparse, asyncio, hashlib, json, ssl, subprocess, time
 import _setup
-import httpx, websockets, app
+import httpx, websockets
 from tools import providers
+from tools.vowels import vowelize
 
 p = argparse.ArgumentParser()
 p.add_argument("--url", default="https://127.0.0.1:8794")
@@ -25,7 +26,7 @@ async def clip(h, text):
     f = CACHE / (hashlib.sha1(f"{providers.VOICE}:{text}".encode()).hexdigest()[:16] + ".pcm")
     if not f.exists():
         CACHE.mkdir(parents=True, exist_ok=True)
-        audio = await providers.synth(h, await app.vowelize(text, h))
+        audio = await providers.synth(h, await vowelize(text, h))
         pcm = subprocess.run(["ffmpeg", "-loglevel", "error", "-i", "pipe:0", "-ac", "1", "-ar", "16000", "-f", "s16le", "pipe:1"], input=audio, capture_output=True, timeout=60, check=True).stdout
         f.write_bytes(pcm)
     return f.read_bytes()

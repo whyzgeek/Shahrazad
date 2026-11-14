@@ -176,21 +176,19 @@ hf_get(){ local repo=$1 dest=$2; shift 2
   PATH="$(abs_path "$V_TUTOR")/bin:$PATH" timeout 14400 hf download "$repo" "$@" --local-dir "$dest" >/dev/null || die "download failed: $repo (re-run to resume)"; }
 have(){ local f; for f in "$@"; do [ -s "$M/$f" ] || return 1; done; }
 step "Models (in $M)"
+# [LICENSE=URL] model NAME SIZE_GB "FILES TO CHECK" REPO DIR [download options]: one local model, checked or downloaded.
+model(){ local name=$1 size=$2 check=$3 repo=$4 dir=$5; shift 5
+  if have $check; then ok "$name"
+  elif [ "$CHECK" = 1 ]; then todo "$name, $size GB"
+  else echo "   downloading $name ($size GB)...${LICENSE:+ Its license: $LICENSE}"; hf_get "$repo" "$M/$dir" "$@"; ok "$name"; fi; }
 if [ "$HEARING" = cloud ]; then ok "Voxtral not needed (hearing in the cloud)"
-elif have voxtral-ar/consolidated.safetensors voxtral-ar/params.json voxtral-ar/tekken.json; then ok "Voxtral"
-elif [ "$CHECK" = 1 ]; then todo "Voxtral, 8 GB"
-else echo "   downloading Voxtral (8 GB)..."; hf_get mistralai/Voxtral-Mini-4B-Realtime-Arabic "$M/voxtral-ar" consolidated.safetensors params.json tekken.json config.json generation_config.json processor_config.json; ok "Voxtral"; fi
+else model Voxtral 8 "voxtral-ar/consolidated.safetensors voxtral-ar/params.json voxtral-ar/tekken.json" mistralai/Voxtral-Mini-4B-Realtime-Arabic voxtral-ar \
+  consolidated.safetensors params.json tekken.json config.json generation_config.json processor_config.json; fi
 if [ "$BRAIN" = cloud ]; then ok "Gemma 4 not needed (brain in the cloud)"
-elif have gemma4-26b/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf gemma4-26b/MTP/mtp-gemma-4-26B-A4B-it-Q4_0.gguf; then ok "Gemma 4"
-elif [ "$CHECK" = 1 ]; then todo "Gemma 4, 14 GB"
-else echo "   downloading Gemma 4 (14 GB)..."; hf_get unsloth/gemma-4-26B-A4B-it-qat-GGUF "$M/gemma4-26b" gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf MTP/mtp-gemma-4-26B-A4B-it-Q4_0.gguf; ok "Gemma 4"; fi
+else model "Gemma 4" 14 "gemma4-26b/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf gemma4-26b/MTP/mtp-gemma-4-26B-A4B-it-Q4_0.gguf" unsloth/gemma-4-26B-A4B-it-qat-GGUF gemma4-26b \
+  gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf MTP/mtp-gemma-4-26B-A4B-it-Q4_0.gguf; fi
 if [ "$VOICE" = cloud ]; then ok "Spark not needed (voice in the cloud)"
-elif have spark/LLM/model.safetensors spark/BiCodec/model.safetensors spark/wav2vec2-large-xlsr-53/pytorch_model.bin spark/modeling_spark_tts.py; then ok "Spark"
-elif [ "$CHECK" = 1 ]; then todo "Spark, 3 GB"
-else
-  echo "   downloading Spark (3 GB). Its license is non-commercial: https://huggingface.co/IbrahimSalah/Arabic-TTS-Spark"
-  hf_get IbrahimSalah/Arabic-TTS-Spark "$M/spark" --exclude "src/*"; ok "Spark"
-fi
+else LICENSE="non-commercial, https://huggingface.co/IbrahimSalah/Arabic-TTS-Spark" model Spark 3 "spark/LLM/model.safetensors spark/BiCodec/model.safetensors spark/wav2vec2-large-xlsr-53/pytorch_model.bin spark/modeling_spark_tts.py" IbrahimSalah/Arabic-TTS-Spark spark --exclude "src/*"; fi
 # Must be BF16: an F16 conversion returns NaN predictions.
 if [ "$VOICE" = cloud ]; then :
 elif have spark-gguf/spark-llm-BF16.gguf; then ok "Spark converted for llama.cpp"

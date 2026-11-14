@@ -4,10 +4,11 @@ from pathlib import Path
 
 import yaml
 
-from tools import providers
+from tools import brain
 
 ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = Path(os.environ.get("SHAHRAZAD_LEARNER_DB", ROOT / "data/learner.db"))
+NEW_TITLE = "New conversation"
 
 CARDS = yaml.safe_load((ROOT / "cards.yaml").read_text())
 CARDS_AR = yaml.safe_load((ROOT / "cards_ar.yaml").read_text())
@@ -90,31 +91,14 @@ def clean_errors(text, found, source):
     return out
 
 
-async def ask_json(http, url, body, keys, timeout):
-    """A structured request, tried twice: a cloud provider occasionally returns broken or incomplete JSON."""
-    for attempt in (1, 2):
-        r = await http.post(url, json=providers.llm_body(body), headers=providers.LLM_HEADERS, timeout=timeout)
-        r.raise_for_status()
-        try:
-            data = json.loads(r.json()["choices"][0]["message"]["content"])
-            if isinstance(data, dict) and all(k in data for k in keys):
-                return data
-        except (json.JSONDecodeError, KeyError, IndexError, TypeError):
-            pass
-        if attempt == 2:
-            raise ValueError("the brain returned no valid JSON twice")
-
-
-async def find_errors(text, last_tutor, http, llm_url, source, practising=()):
+async def find_errors(text, last_tutor, http, source, practising=()):
     """Returns (errors, concepts from `practising` the learner used correctly, level shown, whether they're struggling)."""
     user = (f"The tutor had just said: {last_tutor}\n\n" if last_tutor else "") + f"The learner said: {text}"
     if practising:
         user += "\n\nIn correct_uses, list any of these concepts that the learner clearly used correctly, quoting the exact words that show it. Include one only if those words are a real example of that structure, and leave the list empty otherwise: " + ", ".join(practising)
     else:
         user += "\n\nReturn an empty correct_uses list."
-    body = {"messages": [{"role": "system", "content": PROMPT}, {"role": "user", "content": user}], "max_tokens": 500, "temperature": 0, "id_slot": 1,
-            "chat_template_kwargs": {"enable_thinking": False}, "response_format": {"type": "json_schema", "json_schema": {"schema": SCHEMA}}}
-    data = await ask_json(http, llm_url, body, ("errors",), 90)
+    data = await brain.ask_json(http, [{"role": "system", "content": PROMPT}, {"role": "user", "content": user}], 500, SCHEMA, timeout=90)
     errors = clean_errors(text, data["errors"], source)
     wrong_concepts = {e["concept"] for e in errors}
     said = f" {normal(text)} "
@@ -122,13 +106,12 @@ async def find_errors(text, last_tutor, http, llm_url, source, practising=()):
     return errors, [c for c in dict.fromkeys(uses) if c in practising and c not in wrong_concepts], data.get("level", "intermediate"), bool(data.get("struggling"))
 
 
-async def check_target(text, concept, http, llm_url):
+async def check_target(text, concept, http):
     """After a follow-up question: did the learner attempt this one structure, and get it right? Returns True, False, or None if not attempted."""
     card = CARDS[concept]
     ask = f"An Arabic learner is practising this rule: {card['rule']}\nThe learner said: {text}\nDid they use this structure at all, and if so was it correct? Ignore missing vowel marks, and ignore mistakes unrelated to this rule."
     schema = {"type": "object", "properties": {"used": {"type": "boolean"}, "correct": {"type": "boolean"}}, "required": ["used", "correct"]}
-    body = {"messages": [{"role": "user", "content": ask}], "max_tokens": 40, "temperature": 0, "id_slot": 1, "chat_template_kwargs": {"enable_thinking": False}, "response_format": {"type": "json_schema", "json_schema": {"schema": schema}}}
-    d = await ask_json(http, llm_url, body, ("used", "correct"), 60)
+    d = await brain.ask_json(http, ask, 40, schema)
     return bool(d["correct"]) if d["used"] else None
 
 
@@ -155,7 +138,7 @@ class Learner:
         self.db.execute("UPDATE sessions SET title='Earlier conversation' WHERE title IS NULL")
         self.db.commit()
 
-    def start_session(self, title="New conversation"):
+    def start_session(self, title=NEW_TITLE):
         now = time.time()
         cur = self.db.execute("INSERT INTO sessions(started,updated,title) VALUES(?,?,?)", (now, now, title))
         self.db.commit()

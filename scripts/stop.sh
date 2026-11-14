@@ -1,11 +1,9 @@
 #!/bin/bash
-# Stops everything scripts/start.sh started.
+# Stops everything scripts/start.sh started: each process it records in run/NAME.pid, with its children.
 cd "$(dirname "$0")/.." || exit 1
-R=run
-for n in app spark sparklm gemma voxtral; do
-  if [ -f "${R:?}/${n:?}.pid" ]; then
-    kill -TERM -- "-$(cat "${R:?}/${n:?}.pid")" 2>/dev/null
-    rm -f "${R:?}/${n:?}.pid"
-  fi
+for f in run/*.pid; do
+  [ -f "$f" ] || continue
+  kill -TERM -- "-$(cat "$f")" 2>/dev/null
+  rm -f "$f"
 done
 echo stopped

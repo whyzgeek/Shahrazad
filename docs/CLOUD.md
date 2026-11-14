@@ -107,15 +107,15 @@ Four spoken learner turns, including a request for Al Jazeera's news, were sent 
 ## Differences from the local setup
 
 - **Privacy.** What the learner says and the tutor's replies are sent to OpenRouter and the model providers. The learner record (`data/learner.db`) still stays on your computer.
-- **Cost.** There's no login, so anyone who can open the tutor can spend the credit. Keep it on a network you trust.
+- **Cost.** Without `TUTOR_PASSWORD`, anyone who can open the tutor can spend the credit. Set one, or keep it on a network you trust.
 - **License.** Spark's non-commercial license applies only when the voice runs locally.
 
 ## How it works
 
-`tools/providers.py` holds all the cloud handling. The rest of the code builds the same requests as for the local models.
+`tools/providers.py` holds all the cloud handling. The rest of the code builds the same requests as for the local models; all brain requests go through `tools/brain.py`.
 
 - **Brain.** `llm_body()` removes llama-server's own fields (`id_slot`, `chat_template_kwargs`), names the model and the providers, and gives structured-output schemas the name OpenRouter requires. Sampling stays at Google's recommended values, and thinking stays off, as locally. Streaming and tool calls use the same OpenAI-style format as llama-server.
-- **Hearing.** `CloudEar` in `app.py` cuts the turn into segments and shows the captions. `transcribe()` sends each segment as a 16 kHz WAV file to `/api/v1/audio/transcriptions` with `language: "ar"`.
+- **Hearing.** `ClipEar` in `tools/hearing.py` cuts the turn into segments and shows the captions. `transcribe()` sends each segment as a 16 kHz WAV file to `/api/v1/audio/transcriptions` with `language: "ar"`.
 - **Voice.** `synth()` posts each sentence to `/api/v1/audio/speech`. It returns MP3, which the browser decodes as it does Spark's WAV. Gemini voices return raw 24 kHz PCM, which gets a WAV header.
 
-The test scripts are in `run/cloud/`, which git ignores.
+The measurement scripts are in `evals/`.

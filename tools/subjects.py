@@ -4,7 +4,7 @@ from urllib.parse import unquote
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import httpx, yaml
+import yaml
 from defusedxml import ElementTree
 
 from .registry import META

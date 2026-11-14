@@ -90,7 +90,7 @@ def test_check_target_retries_broken_json():
     import asyncio
     async def go():
         async with fake_brain('{"used": true, "corr', '{"used": true, "correct": true}') as h:
-            return await learner.check_target("نص", CONCEPT, h, "http://brain/v1/chat/completions")
+            return await learner.check_target("نص", CONCEPT, h)
     assert asyncio.run(go()) is True
 
 
@@ -98,6 +98,6 @@ def test_find_errors_gives_up_after_two_broken_answers():
     import asyncio
     async def go():
         async with fake_brain("not json", '{"level": "beginner"}') as h:
-            return await learner.find_errors("نص", "", h, "http://brain/v1/chat/completions", "typed")
+            return await learner.find_errors("نص", "", h, "typed")
     with pytest.raises(ValueError):
         asyncio.run(go())
