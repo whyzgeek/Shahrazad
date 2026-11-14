@@ -16,6 +16,9 @@ BYTES_PER_S = 32000
 MAX_TURN_S = 180          # the clip ear keeps at most this much of one turn
 SEGMENT_MIN_S = 4         # the clip ear cuts the turn at the next pause after this long...
 SEGMENT_MAX_S = 15        # ...and at a shorter pause, or regardless, by this long
+SHORT_TAIL_S = 2          # a shorter last piece is heard with the one before it: alone it can come back in English
+SPEECH_S = 0.25           # a last piece with less speech than this (a pause before tapping Send) isn't sent at all
+SPEECH_RMS = 300          # quieter than this is silence or background noise, however loud the recent speech was
 ROLL_AFTER_S = 55         # Voxtral: look for a pause to begin a new session (a session holds about 82 s)
 ROLL_FORCE_S = 72         # ...and begin one regardless, before the session runs out
 # Each live caption is a paid transcription of the unfinished segment, so they can be turned off to save credit.
@@ -27,13 +30,14 @@ class Pauses:
     """Counts quiet chunks in a row, relative to the loudest recent speech."""
 
     def __init__(self):
-        self.level, self.quiet = 0.0, 0
+        self.level, self.quiet, self.speech = 0.0, 0, False
 
     def hear(self, pcm):
         a = array.array("h", pcm)
         rms = (sum(x * x for x in a[::4]) / max(len(a) // 4, 1)) ** 0.5
         self.level = max(self.level * 0.995, rms)
         self.quiet = self.quiet + 1 if rms < 0.12 * self.level else 0
+        self.speech = rms >= SPEECH_RMS and not self.quiet
         return self.quiet
 
 
@@ -50,7 +54,7 @@ async def stop_task(task):
 class ClipEar:
     def __init__(self, http, send):
         self.http, self.send = http, send
-        self.pcm, self.segments, self.caption = bytearray(), [], ""
+        self.pcm, self.segments, self.clips, self.caption, self.voiced = bytearray(), [], [], "", 0
         self.pauses, self.total, self.caption_task, self.caption_at = Pauses(), 0, None, time.time()
         self.finished = False
 
@@ -62,6 +66,7 @@ class ClipEar:
             return
         self.pcm.extend(pcm); self.total += len(pcm)
         quiet = self.pauses.hear(pcm)
+        self.voiced += len(pcm) if self.pauses.speech else 0
         seconds = len(self.pcm) / BYTES_PER_S
         if (seconds >= SEGMENT_MIN_S and quiet >= 4) or (seconds >= SEGMENT_MAX_S and quiet >= 1) or seconds >= SEGMENT_MAX_S + 5:
             self.cut()
@@ -74,7 +79,8 @@ class ClipEar:
             task = asyncio.create_task(providers.transcribe(self.http, bytes(self.pcm)))
             task.add_done_callback(lambda _: CAPTIONS and asyncio.ensure_future(self.show()))
             self.segments.append(task)
-        self.pcm, self.pauses.quiet, self.caption = bytearray(), 0, ""
+            self.clips.append(bytes(self.pcm))
+        self.pcm, self.pauses.quiet, self.caption, self.voiced = bytearray(), 0, "", 0
 
     async def update_caption(self, pcm, index):
         try:
@@ -99,6 +105,11 @@ class ClipEar:
     async def finish(self):
         """The whole turn's text, in order. Raises if every segment failed."""
         self.finished = True
+        if self.voiced < BYTES_PER_S * SPEECH_S:
+            self.pcm = bytearray()   # silence or noise: a transcriber given no speech makes words up
+        elif self.segments and len(self.pcm) < BYTES_PER_S * SHORT_TAIL_S:
+            await stop_task(self.segments.pop())
+            self.pcm = bytearray(self.clips.pop()) + self.pcm
         self.cut()
         if not self.segments:
             return ""

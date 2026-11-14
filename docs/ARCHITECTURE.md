@@ -163,6 +163,8 @@ The level sets how the tutor speaks, how directly it corrects, and how demanding
 
 The tutor's system prompt tells Gemma to begin with «نقول: » and the corrected sentence when the learner makes a mistake. It is in `prompts/system.txt`.
 
+In a long conversation that rule sits far back, and the notes added each turn (the next subject question, or a follow-up on an earlier rule that said not to mention the earlier mistake) sometimes won: the tutor answered and asked its question without correcting, and only the underline from the error check showed the mistake. So the private note now ends with a reminder to deal with mistakes first, and the follow-up note says corrections still come first. Replaying a real 24-turn cloud conversation (`run/stage5/naqool_replay.py`, each learner turn with a mistake answered 4–6 times): «نقول» in 49 of 54 replies before, 34 of 36 after; on follow-up turns 30 of 36 before, 36 of 36 after. The one turn still often missed has a subtle error (أكثرهم for a non-human plural), which the separate error check catches.
+
 ### Things that are easy to get wrong
 
 - **Convert Spark to BF16, not F16.** The F16 GGUF returns NaN predictions.

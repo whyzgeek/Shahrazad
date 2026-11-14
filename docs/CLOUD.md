@@ -82,6 +82,19 @@ Voxtral Mini Transcribe 3 is the cloud version of the local Voxtral family. It g
 
 On a 19-second, three-sentence clip, the caption updated every 1.5–2 seconds while speaking, and the final text matched what was said.
 
+A short piece on its own can come back in English or as romanised words, especially when the learner trails off ("ممكن أن... To fastly."). So a last piece under 2 seconds is transcribed together with the piece before it. A last piece with almost no speech in it, like the pause before tapping Send on a phone, isn't sent at all: given silence or room noise, the model makes words up. On the 94 test recordings, with and without a 1.5 s pause added before Send, no speech was lost; only silence was left out. On 40 fragments of 0.5–1.6 s cut from the human clips, Latin text came back for 1 alone and 0 with the 4 seconds before them.
+
+Measured in November 2026 on 60 human MSA clips (56 that every run answered), 34 learner sentences and those 40 fragments:
+
+| Hearing | Character error | Word error | Clips with no error | Mistakes kept | Fragments with Latin text |
+|---|---|---|---|---|---|
+| **Voxtral Mini Transcribe 3** (in use) | 1.15 % | 2.77 % | 46 of 56 | 9 of 20 | 1 of 40 |
+| Voxtral Small Transcribe 3 | 1.40 % | 3.14 % | 44 of 56 | 9 of 20 | 1 of 40 |
+| Mini with `context_bias` ("A Modern Standard Arabic conversation lesson…") | 1.24 % | 3.14 % | 44 of 56 | 9 of 20 | 8 of 40 |
+| Small with `context_bias` | 1.72 % | 3.33 % | 44 of 56 | 9 of 20 | 7 of 37 |
+
+Mistral's context biasing made short fragments worse: they came back as English or romanised Arabic ("Let's watch.", "El Biladi."). The larger model was no better. The local Voxtral Realtime Arabic and Spark are not offered on OpenRouter; the cloud brain is the same Gemma 4 model as the local one.
+
 ### Voice
 
 12 grammar sentences were read by each candidate. Each clip was then transcribed back by the cloud hearing model and compared letter by letter.

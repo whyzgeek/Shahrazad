@@ -102,3 +102,42 @@ def test_clip_ear_cuts_at_pauses_and_keeps_order(monkeypatch):
             await ear.add(chunk(loud))
         return await ear.finish()
     assert asyncio.run(go()) == "clip1 clip2" and len(heard) == 2
+
+
+def test_clip_ear_hears_a_short_last_piece_with_the_one_before(monkeypatch):
+    """Alone, a short trailing-off piece can come back in English, so it's transcribed with the piece before it."""
+    import array, asyncio, random
+    from tools import hearing
+
+    async def transcribe(http, pcm):
+        return str(len(pcm) // 3200)   # tenths of a second heard
+    monkeypatch.setattr(providers, "transcribe", transcribe)
+    monkeypatch.setattr(hearing, "CAPTIONS", False)
+    chunk = lambda loud: array.array("h", [random.randint(-3000, 3000) if loud else 0 for _ in range(1600)]).tobytes()   # 0.1 s
+
+    async def go():
+        ear = hearing.ClipEar(None, lambda **m: asyncio.sleep(0))
+        for loud in [True] * 50 + [False] * 5 + [True] * 8:   # cut after 5.4 s, then a 0.9 s tail
+            await ear.add(chunk(loud))
+        return await ear.finish()
+    assert asyncio.run(go()) == "63"
+
+
+def test_clip_ear_drops_a_last_piece_without_speech(monkeypatch):
+    """A pause or background noise before tapping Send isn't transcribed, since the model would make words up."""
+    import array, asyncio, random
+    from tools import hearing
+
+    async def transcribe(http, pcm):
+        return str(len(pcm) // 3200)
+    monkeypatch.setattr(providers, "transcribe", transcribe)
+    monkeypatch.setattr(hearing, "CAPTIONS", False)
+    sound = lambda amp: array.array("h", [random.randint(-amp, amp) for _ in range(1600)]).tobytes()   # 0.1 s
+
+    async def go(parts):
+        ear = hearing.ClipEar(None, lambda **m: asyncio.sleep(0))
+        for amp in parts:
+            await ear.add(sound(amp))
+        return await ear.finish()
+    assert asyncio.run(go([3000] * 50 + [0] * 5 + [150] * 30)) == "54"   # 3 s of quiet room noise after speaking
+    assert asyncio.run(go([150] * 20)) == ""                              # tapped twice without speaking
