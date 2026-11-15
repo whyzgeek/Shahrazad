@@ -8,8 +8,8 @@ real system prompt, level note and tools, at both levels the tutor adapts to.
 """
 import argparse, asyncio, json
 import _setup
-import httpx, app
-from tools import brain, learner, providers
+import httpx
+from tools import brain, learner, providers, session
 
 p = argparse.ArgumentParser()
 p.add_argument("--repeat", type=int, default=4, help="how many times each correct sentence is asked")
@@ -19,11 +19,11 @@ D = json.loads((_setup.DATA / "naqool.json").read_text())
 
 async def reply(h, said, band):
     note = f"[Private note to the tutor, not from the learner. Never correct it or mention it. The learner's current level is {band}. {learner.BAND_STYLE[band]}]"
-    msgs = [{"role": "system", "content": app.SYSTEM}] + D["context"] + [{"role": "user", "content": said + "\n\n" + note}]
+    msgs = [{"role": "system", "content": session.SYSTEM}] + D["context"] + [{"role": "user", "content": said + "\n\n" + note}]
 
     async def ignore(_):
         pass
-    text, _ = await brain.turn(h, msgs, app.REGISTRY.schemas(list(app.REGISTRY.tools)), ignore)
+    text, _ = await brain.turn(h, msgs, session.REGISTRY.schemas(list(session.REGISTRY.tools)), ignore)
     return text.strip()
 
 

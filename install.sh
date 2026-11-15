@@ -37,10 +37,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-step(){ printf '\n== %s\n' "$*"; }
-ok(){ printf '   ok: %s\n' "$*"; }
-todo(){ printf '   needed: %s\n' "$*"; MISSING=$((MISSING + 1)); }
-die(){ printf '\nStopped: %s\n' "$*"; exit 1; }
+. scripts/ui.sh   # step, ok, warn, die
+todo(){ printf '   %s○%s needed: %s\n' "$YELLOW" "$RESET" "$*"; MISSING=$((MISSING + 1)); }
 MISSING=0
 
 env_get(){ [ -f .env ] && sed -n "s/^$1=//p" .env | tail -1; }

@@ -58,6 +58,14 @@ def test_health_reports_every_part(client):
     assert all(p["ok"] is False and p["mode"] == "local" for p in h.values())   # nothing is running in the test
 
 
+def test_status_page_names_each_part_and_where_it_runs(client):
+    s = client.get("/status").json()
+    assert [p["kind"] for p in s["parts"]] == ["brain", "hearing", "voice"]
+    assert {(p["name"], p["gpu"]) for p in s["parts"]} == {("Gemma 4", "0"), ("Voxtral", "1"), ("Spark", "0")}
+    assert all(p["ok"] is False for p in s["parts"]) and s["credit"] is None   # all local, nothing running in the test
+    assert s["app"]["since"] and (s["app"]["stops"] or 0) > s["app"]["since"]
+
+
 def test_gloss_and_translate_reject_empty_input(client):
     assert client.post("/gloss", json={"word": "hello", "sentence": ""}).status_code == 400
     assert client.post("/translate", json={"text": "hello"}).status_code == 400

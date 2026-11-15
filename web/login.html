@@ -1,0 +1,33 @@
+<!doctype html>
+<!-- The login page, shown only when TUTOR_PASSWORD is set. The server puts any message where the error goes. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Shahrazad</title>
+  <link rel="icon" href="assets/favicon.ico">
+  <style>
+    :root { --bg: #f7f5f0; --fg: #1f1f1c; --line: #ddd8cc; --card: #fff; --acc: #0f6b5c; --err: #b3401f; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #191a18; --fg: #ecebe6; --line: #35362f; --card: #232420; --acc: #2f8f7d; --err: #e08a6a; }
+    }
+    body { margin: 0; min-height: 100dvh; display: grid; place-items: center; background: var(--bg); color: var(--fg); font-family: system-ui, sans-serif; }
+    form { width: min(340px, calc(100vw - 32px)); text-align: center; }
+    img { width: 72px; height: 72px; border-radius: 50%; }
+    h1 { font-size: 20px; margin: 10px 0 18px; }
+    input, button { width: 100%; font: inherit; padding: 10px 12px; border-radius: 8px; box-sizing: border-box; }
+    input { border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+    button { margin-top: 10px; border: 0; background: var(--acc); color: #fff; cursor: pointer; }
+    .err { color: var(--err); font-size: 14px; }
+  </style>
+</head>
+<body>
+  <form method="post" action="login">
+    <img src="assets/logo.png" alt="">
+    <h1>Shahrazad</h1>
+    $error
+    <input type="password" name="password" placeholder="Password" autofocus autocomplete="current-password">
+    <button>Log in</button>
+  </form>
+</body>
+</html>

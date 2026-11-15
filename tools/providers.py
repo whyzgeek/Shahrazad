@@ -46,20 +46,22 @@ BRAIN_ROUTING = {"order": BRAIN_PROVIDERS, "allow_fallbacks": False, "require_pa
 
 @dataclass(frozen=True)
 class Part:
-    mode: str     # local or cloud
-    name: str     # what runs it, as the page and the log show it
-    health: str   # the local service's health check; a cloud part is checked by its key, since a call would spend credit
+    mode: str          # local or cloud
+    name: str          # what runs it, as the page and the log show it
+    health: str = ""   # the local service's health check; a cloud part is checked by its key, since a call would spend credit
+    gpu: str = ""      # the local GPU it runs on
+    process: str = ""  # the local process, as scripts/start.sh names it in run/<process>.pid
 
 
-def part(mode, local_name, port_var, default_port, cloud_name):
+def part(mode, local_name, port_var, default_port, cloud_name, gpu_var, gpu_default, process):
     if mode == "cloud":
-        return Part(mode, cloud_name, "")
-    return Part(mode, local_name, "http://" + local_url(port_var, default_port, "/health"))
+        return Part(mode, cloud_name)
+    return Part(mode, local_name, "http://" + local_url(port_var, default_port, "/health"), os.environ.get(gpu_var, gpu_default), process)
 
 
-PARTS = {"brain": part(BRAIN, "Gemma 4", "GEMMA_PORT", "18099", BRAIN_MODEL),
-         "hearing": part(HEARING, "Voxtral", "VOXTRAL_PORT", "18098", HEARING_MODEL),
-         "voice": part(VOICE, "Spark", "SPARK_PORT", "18096", f"{VOICE_MODEL} {VOICE_NAME}")}
+PARTS = {"brain": part(BRAIN, "Gemma 4", "GEMMA_PORT", "18099", BRAIN_MODEL, "GPU_LLM", "0", "gemma"),
+         "hearing": part(HEARING, "Voxtral", "VOXTRAL_PORT", "18098", HEARING_MODEL, "GPU_ASR", "1", "voxtral"),
+         "voice": part(VOICE, "Spark", "SPARK_PORT", "18096", f"{VOICE_MODEL} {VOICE_NAME}", "GPU_VOICE", os.environ.get("GPU_LLM", "0"), "sparklm")}
 
 LLM_URL = f"{CLOUD}/chat/completions" if BRAIN == "cloud" else "http://" + local_url("GEMMA_PORT", "18099", "/v1/chat/completions")
 LLM_HEADERS = HEADERS if BRAIN == "cloud" else {}
@@ -118,6 +120,16 @@ VOICES = {"local": _spark, "cloud": _cloud_voice}
 
 async def synth(http, text):
     return await VOICES[VOICE](http, text)
+
+
+async def credit(http):
+    """What's left on the OpenRouter account, in dollars, or None without a key. Reading it costs nothing."""
+    if not KEY:
+        return None
+    r = await http.get(f"{CLOUD}/credits", headers=HEADERS, timeout=10)
+    r.raise_for_status()
+    d = r.json()["data"]
+    return {"left": round(d["total_credits"] - d["total_usage"], 2), "total": d["total_credits"]}
 
 
 def describe():

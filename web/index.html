@@ -1,0 +1,77 @@
+<!doctype html>
+<!-- The server fills in data-newest (TUTOR_NEWEST), data-debug (TUTOR_DEBUG_LOG) and data-login (TUTOR_PASSWORD). -->
+<html lang="en" data-newest="bottom" data-debug="0" data-login="0">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Shahrazad</title>
+  <link rel="icon" href="assets/favicon.ico" sizes="16x16 32x32 48x48">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="stylesheet" href="web/style.css">
+  <script type="module" src="web/js/main.js"></script>
+</head>
+<body>
+
+<!-- Sidebar: conversations, Progress and Status. A slide-in menu on narrow screens. -->
+<nav id="side">
+  <div class="brand"><img src="assets/logo.png" alt="" width="36" height="36"><h1>Shahrazad</h1></div>
+  <button id="newc">+ New conversation</button>
+  <div class="links">
+    <button class="link" id="progb">📈 Progress and all corrections</button>
+    <button class="link" id="statb">🩺 Status</button>
+  </div>
+  <div id="slist"></div>
+  <a id="logout" class="link" href="logout" hidden>Log out</a>
+</nav>
+<div id="shade"></div>
+
+<div id="main">
+  <header>
+    <button id="menu" aria-label="Conversations">☰</button>
+    <img class="logo" src="assets/logo.png" alt="" width="28" height="28">
+    <h2 id="ctitle" dir="auto"></h2>
+    <button id="order" title="Where new messages and corrections appear"></button>
+    <button id="cardsb" hidden aria-label="Corrections"></button>
+  </header>
+  <div id="banner" role="status" hidden></div>
+
+  <!-- Progress and Status open here, over the conversation. -->
+  <div id="prog" hidden>
+    <div class="in">
+      <header><h2 id="ptitle"></h2><button id="pclose">✕ Close</button></header>
+      <div id="pbody"></div>
+    </div>
+  </div>
+
+  <!-- The conversation, and the corrections beside it (a panel from the bottom on a phone). -->
+  <div id="wrap">
+    <div id="log"></div>
+    <aside id="notes" hidden>
+      <h2>Corrections<button id="nclose">✕ Close</button></h2>
+      <div id="notelist"></div>
+    </aside>
+  </div>
+
+  <footer>
+    <div class="row">
+      <button id="talk" disabled>Connecting…</button>
+      <button id="stop" hidden title="Stop the tutor (Esc)">■ Stop</button>
+    </div>
+    <form id="f">
+      <input id="txt" dir="auto" placeholder="Type here, or paste a YouTube link" autocomplete="off">
+      <button>Send</button>
+    </form>
+    <div class="opts">
+      <button class="opt" id="o-tap" title="Tap once to start talking and once to stop, instead of holding">Tap to talk</button>
+      <button class="opt" id="o-slow" title="Play the tutor's voice at 0.8× speed">Slower voice</button>
+      <button class="opt" id="o-marks" title="Show the vowel marks on the tutor's replies">Vowel marks</button>
+    </div>
+    <div id="st"></div>
+  </footer>
+</div>
+
+<!-- A word's meaning, shown over the reply when it's tapped. -->
+<div id="pop" hidden></div>
+
+</body>
+</html>

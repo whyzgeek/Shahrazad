@@ -3,12 +3,13 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 import app
+from tools import auth
 
 
 @pytest.fixture
 def locked(monkeypatch):
-    monkeypatch.setattr(app, "PASSWORD", "sesame")
-    monkeypatch.setattr(app, "KEY", b"k" * 32)
+    monkeypatch.setattr(auth, "PASSWORD", "sesame")
+    monkeypatch.setattr(auth, "KEY", b"k" * 32)
     with TestClient(app.app, base_url="https://testserver") as c:
         yield c
 
@@ -41,7 +42,7 @@ def test_forged_or_expired_cookie_is_refused(locked):
     assert locked.get("/health").status_code == 401
     until = "1000"
     import hmac
-    locked.cookies.set("shahrazad", until + "." + hmac.new(app.KEY, until.encode(), "sha256").hexdigest())
+    locked.cookies.set("shahrazad", until + "." + hmac.new(auth.KEY, until.encode(), "sha256").hexdigest())
     assert locked.get("/health").status_code == 401
 
 

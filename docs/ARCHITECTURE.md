@@ -13,7 +13,7 @@ GPU numbers below describe the tested layout of two 12 GB cards. `scripts/config
 | Generate speech tokens | Arabic-TTS-Spark language model (converted to BF16 GGUF) | llama-server | GPU0 |
 | Turn speech tokens into audio | Spark BiCodec decoder | `spark_service.py` (PyTorch) | GPU0 |
 | Conversation logic | None | `app.py` (FastAPI) and `tools/` (see [Code layout](#code-layout)) | CPU |
-| User interface | None | `index.html` in the browser | Learner's device |
+| User interface | None | The page in `web/`, in the browser | Learner's device |
 
 The interaction is push-to-talk with interruption: the learner holds a button or the space bar, and pressing it again while the tutor is speaking stops the reply. It is not full duplex, because the tutor does not listen while it speaks.
 
@@ -171,13 +171,13 @@ In a long conversation that rule sits far back, and the notes added each turn (t
 - **Force Gemma's thinking off.** llama.cpp enables it by default, which adds 4–12 s and can return empty replies.
 - **Give Spark full tashkeel.** It is trained only on vowelled text.
 - **Load Spark's service on the CPU first.** The full model does not fit on GPU0 at startup. The service reads the reference voice, drops the language model and wav2vec, then moves only the decoder to the GPU (0.59 GB).
-- **Expect occasional startup crashes on this CPU.** Fresh PyTorch processes sometimes die with "Illegal instruction" on this non-AVX2 Xeon, at the first `torch.cos` call. The cause is unknown, and `ATEN_CPU_CAPABILITY` and `MKL_ENABLE_INSTRUCTIONS` did not stop it. `scripts/start.sh` retries up to four times.
+- **Expect occasional startup crashes on this CPU.** Fresh PyTorch processes sometimes die with "Illegal instruction" on this non-AVX2 Xeon, at the first `torch.cos` call. The cause is unknown, and `ATEN_CPU_CAPABILITY` and `MKL_ENABLE_INSTRUCTIONS` did not stop it. `scripts/start.sh` tries such a process up to three times; any other failure stops it straight away, with the reason in plain words (for example not enough GPU memory, and which programs hold it).
 
 ## Frontend
 
-The frontend is one static file, `index.html`, with no build step or external libraries. FastAPI serves it at `/`.
+The frontend is plain HTML, CSS and JavaScript modules in `web/`, with no build step or external libraries: `index.html` (the markup), `style.css`, and one module per part of the page in `web/js/` (see [Code layout](#code-layout)). FastAPI serves the page at `/` and its files under `/web/`, which browsers revalidate on each load, so an update reaches them at once.
 
-- **Microphone:** an inline AudioWorklet downsamples to 16 kHz mono and sends 80 ms frames of PCM16 (1280 samples). Echo cancellation, noise suppression and automatic gain are on.
+- **Microphone:** an AudioWorklet (`web/js/mic-worklet.js`) downsamples to 16 kHz mono and sends 80 ms frames of PCM16 (1280 samples). Echo cancellation, noise suppression and automatic gain are on.
 - **Secure context:** browsers only allow the microphone on HTTPS or `localhost`. The page is reached through a self-signed HTTPS address on the local network, or an SSH tunnel to `localhost:8791`.
 - **Controls:** hold the button or the space bar to talk, with a 5-minute limit per turn. "Tap to talk" switches to tap once to start and once to stop. A text box allows typing instead, and "New conversation" starts a fresh one. The talk button shows what the tutor is doing (listening, thinking, speaking), and while it thinks or speaks a Stop button (or Esc) ends the reply.
 - **Welcome:** an empty conversation shows a short explanation and three ways to start: just talk, today's news from Al Jazeera, or a YouTube video.
@@ -188,8 +188,9 @@ The frontend is one static file, `index.html`, with no build step or external li
 - **Sidebar:** each conversation can be renamed (a chosen name is never replaced by a generated one) or deleted with its corrections. What the learner has practised stays in the record.
 - **Exchanges and order:** each exchange (what the learner said, any article or video it opened, and the reply) is one numbered block, #1, #2 and so on, numbered when the server saves it. Each correction card shows the number of the exchange it came from; clicking the number scrolls to that exchange and highlights it. The words each card corrects are underlined in what the learner said, and clicking them brings up the card. The match ignores vowel marks, punctuation and the usual spelling variants (أ إ آ ا, ى ي, ة ه); a correction that can't be found word for word in the transcript is counted next to "You" instead, as a link to its card. Dismissing a card removes its underline. The conversation and the corrections always share one order: newest at the bottom (the default) or at the top. `TUTOR_NEWEST=top` in `.env` sets the default, and the button at the top right changes it for that browser, which remembers the choice.
 - **Auto-scroll:** both panes follow new content, including height changes such as the Arabic font loading. Scrolling away to read earlier messages pauses that pane; scrolling back to the newest end, or starting a new exchange, resumes it.
-- **Playback:** WAV sentences are queued with the Web Audio API so they play back to back. Each tutor message has a Replay button, which speaks it again from its saved vowelled text. "Slower voice" plays at 0.8× through audio elements instead, which keep the pitch.
+- **Playback:** the sentences play in order through one audio element. Phones treat that like a music player, at media volume, and once a tap has started it, it keeps playing new sentences by itself. (Web Audio, used before, was paused by phones whenever the microphone opened or closed.) The microphone is opened for each turn and released when it ends, since phones treat a page holding it as a call. Each tutor message has a Replay button, which speaks it again from its saved vowelled text. "Slower voice" plays at 0.8×, keeping the pitch.
 - **Progress:** "Progress and all corrections" in the sidebar shows the estimated level, the rules being practised (with those due for a follow-up marked) and those learned, and every correction card across conversations, each with its lesson and a link back to its exchange (`GET /progress`). `GET /cards.csv` exports the cards for flashcard apps such as Anki: front, back, tags.
+- **Status:** "Status" in the sidebar, or tapping the banner shown when a part is down, lists each part (brain, hearing, voice) with the model that runs it, where (GPU or cloud), whether it answers, and when it started and will stop by itself. When a part runs in the cloud it also shows the OpenRouter credit left, which costs nothing to read. It refreshes every 5 seconds while open (`GET /status`).
 - **Login:** with `TUTOR_PASSWORD` set, every route except `/login` and `/assets` needs a signed cookie (HMAC-SHA256 with a per-install secret in `data/.cookie_secret` and the password, valid 30 days, HttpOnly, SameSite=Strict). The WebSocket checks the same cookie, and always checks that a browser's `Origin` is the tutor's own address.
 - **Per-browser choices:** the order, tap to talk, slower voice and vowel marks are remembered by each browser.
 
@@ -236,7 +237,10 @@ Each module does one job, and the choice between local and cloud parts is made o
 
 | Module | Job |
 |---|---|
-| `app.py` | The web routes, login, and `Session`: one learner's conversation, from a heard turn to the spoken reply, the topic and the follow-ups |
+| `app.py` | The web server: the page, its routes, and the WebSocket each open page talks over |
+| `tools/session.py` | `Session`: one learner's conversation. `respond()` is the turn in four steps (`begin_turn`, `write_reply`, `SpokenReply.finish`, `end_turn`); `handle()` maps each event from the page to a method |
+| `tools/reply.py` | `SpokenReply`: one reply as it streams in, shown as written, each finished sentence vowelled and voiced in order |
+| `tools/auth.py`, `tools/status.py` | The optional password and its cookie; whether each part answers, for the banner and the Status page |
 | `tools/providers.py` | Reads the part settings. `PARTS` names each part's model and health check; `transcribe()` and `synth()` pick the local or cloud service from a table, and `llm_body()` adapts brain requests for the cloud |
 | `tools/brain.py` | Every brain request: `ask`, `ask_json` (structured, retried once), `turn` (the streamed discussion with tool calls) and `warm` (cache warm-up). It owns the two llama-server slots |
 | `tools/hearing.py` | One turn's hearing behind one interface (`start`, `add`, `finish`, `close`): `StreamEar` for Voxtral, `ClipEar` for the cloud. `listen()` makes the one set in `.env` |
@@ -244,6 +248,13 @@ Each module does one job, and the choice between local and cloud parts is made o
 | `tools/learner.py` | The learner record (SQLite), error finding and the review schedule |
 | `tools/subjects.py`, `tools/youtube.py`, `tools/registry.py`, `tools/skills.py` | Topics: news, articles and videos, and the tools and skills the brain can use |
 | `spark_service.py` | Small local service for Spark's decoder, in its own Python environment |
+| `web/index.html`, `web/style.css`, `web/login.html` | The page's markup and look, and the login page |
+| `web/js/main.js` | Starts the page and routes each server message to the module that shows it, from one table |
+| `web/js/conversation.js`, `corrections.js` | The turns and replies (with Replay and Translate); the underlined mistakes and their cards |
+| `web/js/talk.js`, `mic.js`, `player.js` | The talk and Stop buttons and the keyboard; the microphone; the tutor's voice |
+| `web/js/sessions.js`, `panels.js`, `gloss.js` | The sidebar; Progress, Status and the banner; tapping a word for its meaning |
+| `web/js/connection.js`, `layout.js`, `options.js`, `util.js` | The WebSocket; message order and auto-scroll; the per-browser options; small shared helpers |
+| `scripts/start.sh`, `stop.sh`, `ui.sh` | Start and stop the processes, with readable progress; `ui.sh` is the shared output (also used by `install.sh`) |
 
 ## Hardware and performance
 
