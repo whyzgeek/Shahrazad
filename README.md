@@ -76,6 +76,8 @@ Browsers only allow the microphone on `localhost` or HTTPS. `./install.sh --lan`
 
 Without `TUTOR_PASSWORD` in `.env`, anyone who can reach that address can use the tutor, and with any part in the cloud they would also be spending your OpenRouter credit. Set a password, or keep it on a network you trust.
 
+`scripts/test.sh` runs the tests: the Python code, whole conversations against fake models, the page's own code, and the page in a phone-sized browser. None needs a GPU, a model or a key. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#tests).
+
 ## Configuration
 
 Settings live in `.env`, which the installer creates from [`.env.example`](.env.example); every setting is described there. [`examples/env/`](examples/env/) has ready-made settings for common computers. The ones you're most likely to change:

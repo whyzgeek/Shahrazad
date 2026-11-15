@@ -15,7 +15,6 @@ third_party/
 *.mp3
 *.flac
 !assets/default_voice.wav
-!web/silence.wav
 
 # Runtime
 run/

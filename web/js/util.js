@@ -54,9 +54,19 @@ export const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 /** A Unix time as a clock time, in the viewer's 12- or 24-hour format. */
 export const clock = seconds => new Date(seconds * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
 
+let pinned = '';   // a message ordinary updates don't clear, such as a request to tap
+
 /** The line of status text under the talk button. */
 export function setStatus(text) {
-  $('st').textContent = text;
+  $('st').textContent = text || pinned;
+}
+
+/** Show a message until it's unpinned with pinStatus(''), which leaves alone any newer message shown since. */
+export function pinStatus(text) {
+  const was = pinned;
+  pinned = text;
+  if (text) $('st').textContent = text;
+  else if (was && $('st').textContent === was) $('st').textContent = '';
 }
 
 /** Briefly outline an element, to show where something is. */

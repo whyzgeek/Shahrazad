@@ -2,19 +2,18 @@
 //
 // Phones treat an audio element like a music player: at media volume, and once a tap has started it, it may go on
 // playing new sentences by itself. (Web Audio was paused by phones whenever the microphone opened or closed, so replies
-// needed Replay.) Until a tap has unlocked it, every tap tries again with a moment of silence; a sentence the phone
-// still refuses waits for the next tap.
+// needed Replay.) A phone can still withdraw that permission, for instance when the microphone opens or closes, so
+// every tap renews it with a moment of silence. If the phone refuses or pauses a sentence anyway, the sentence is kept
+// and the page asks for a tap, which plays it.
 import {opts} from './options.js';
-import {setStatus} from './util.js';
+import {pinStatus} from './util.js';
 
-const SILENCE = 'web/silence.wav';   // 50 ms
+const SILENCE = URL.createObjectURL(silentWav(0.05));
 
 let player = null;
-let unlocked = false;
 let current = null;      // the sentence playing now
 let waiting = [];        // object URLs of the sentences still to play
 let muted = false;       // after Stop, audio still on its way is dropped
-let askedForTap = false;
 const listeners = [];
 
 /** Call fn('ended') after each sentence, and fn('stopped') when playback is stopped. */
@@ -42,56 +41,94 @@ export function stopAudio() {
   }
   waiting.forEach(url => URL.revokeObjectURL(url));
   waiting = [];
+  askForTap(false);
   emit('stopped');
+}
+
+function element() {
+  return player || (player = new Audio());
+}
+
+/** Show (or remove) the request for a tap. It stays while the reply's text keeps arriving. */
+function askForTap(needed) {
+  pinStatus(needed ? 'Tap anywhere to hear the reply.' : '');
 }
 
 function playNext() {
   if (current || !waiting.length) return;
-  const url = waiting[0];
-  const audio = player || (player = new Audio());
+  const audio = element();
   const mine = current = {};
-  audio.src = url;
+  audio.src = waiting[0];
   audio.defaultPlaybackRate = audio.playbackRate = opts.slow ? 0.8 : 1;
   audio.preservesPitch = true;
+  const release = () => {
+    current = null;
+    audio.onended = audio.onerror = audio.onpause = null;
+  };
   const done = () => {
     if (current !== mine) return;   // stopped meanwhile
-    current = null;
-    audio.onended = audio.onerror = null;
+    release();
     URL.revokeObjectURL(waiting.shift());
     playNext();
     emit('ended');
   };
+  const refused = () => {   // keep the sentence for the next tap
+    if (current !== mine) return;
+    release();
+    askForTap(true);
+  };
   audio.onended = done;
   audio.onerror = done;
+  audio.onpause = () => {   // paused by the phone: Stop clears current first, and the end sets audio.ended
+    if (!audio.ended) refused();
+  };
   audio.play().then(() => {
-    unlocked = true;
+    if (current === mine) askForTap(false);
   }).catch(e => {
-    if (current !== mine) return;
-    if (e.name === 'NotAllowedError') {   // the phone wants a tap first: keep the sentence for then
-      current = null;
-      askedForTap = true;
-      setStatus('Tap anywhere to hear the reply.');
-    } else {
-      done();
-    }
+    if (e.name === 'NotSupportedError') done();   // a file the browser can't play: skip it
+    else refused();                               // refused, or interrupted before it began
   });
 }
 
-function unlock() {
-  if (!player) player = new Audio();
-  if (!unlocked && !current) {
-    player.src = SILENCE;
-    player.play().then(() => {
-      unlocked = true;
-    }).catch(() => {});
+/** On every tap: play what's waiting, or renew the permission to play with a moment of silence. Either has to start
+ * inside the tap itself, not after it. */
+function onTap() {
+  if (current) return;
+  if (waiting.length) {
+    askForTap(false);
+    playNext();
+    return;
   }
-  if (askedForTap) {
-    askedForTap = false;
-    setStatus('');
-  }
-  if (!current && waiting.length) setTimeout(playNext, 0);
+  const audio = element();
+  audio.src = SILENCE;
+  audio.play().catch(() => {});
+}
+
+/** A WAV file of silence: 8 kHz, 16-bit, mono. Made here, so a tap never waits for a download. */
+function silentWav(seconds) {
+  const rate = 8000;
+  const bytes = Math.round(rate * seconds) * 2;
+  const view = new DataView(new ArrayBuffer(44 + bytes));
+  const text = (at, s) => [...s].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
+  text(0, 'RIFF');
+  view.setUint32(4, 36 + bytes, true);
+  text(8, 'WAVEfmt ');
+  view.setUint32(16, 16, true);         // size of the format section
+  view.setUint16(20, 1, true);          // PCM
+  view.setUint16(22, 1, true);          // mono
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true);   // bytes per second
+  view.setUint16(32, 2, true);          // bytes per sample
+  view.setUint16(34, 16, true);         // bits per sample
+  text(36, 'data');
+  view.setUint32(40, bytes, true);
+  return new Blob([view], {type: 'audio/wav'});
 }
 
 export function setupPlayer() {
-  for (const event of ['pointerup', 'touchend', 'keydown']) addEventListener(event, unlock, {capture: true, passive: true});
+  for (const event of ['pointerup', 'touchend', 'keydown']) addEventListener(event, onTap, {capture: true, passive: true});
+  // Back on the page after switching apps: carry on if the phone allows it, or ask for a tap.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') playNext();
+  });
 }

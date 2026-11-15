@@ -188,7 +188,7 @@ The frontend is plain HTML, CSS and JavaScript modules in `web/`, with no build 
 - **Sidebar:** each conversation can be renamed (a chosen name is never replaced by a generated one) or deleted with its corrections. What the learner has practised stays in the record.
 - **Exchanges and order:** each exchange (what the learner said, any article or video it opened, and the reply) is one numbered block, #1, #2 and so on, numbered when the server saves it. Each correction card shows the number of the exchange it came from; clicking the number scrolls to that exchange and highlights it. The words each card corrects are underlined in what the learner said, and clicking them brings up the card. The match ignores vowel marks, punctuation and the usual spelling variants (أ إ آ ا, ى ي, ة ه); a correction that can't be found word for word in the transcript is counted next to "You" instead, as a link to its card. Dismissing a card removes its underline. The conversation and the corrections always share one order: newest at the bottom (the default) or at the top. `TUTOR_NEWEST=top` in `.env` sets the default, and the button at the top right changes it for that browser, which remembers the choice.
 - **Auto-scroll:** both panes follow new content, including height changes such as the Arabic font loading. Scrolling away to read earlier messages pauses that pane; scrolling back to the newest end, or starting a new exchange, resumes it.
-- **Playback:** the sentences play in order through one audio element. Phones treat that like a music player, at media volume, and once a tap has started it, it keeps playing new sentences by itself. (Web Audio, used before, was paused by phones whenever the microphone opened or closed.) The microphone is opened for each turn and released when it ends, since phones treat a page holding it as a call. Each tutor message has a Replay button, which speaks it again from its saved vowelled text. "Slower voice" plays at 0.8×, keeping the pitch.
+- **Playback:** the sentences play in order through one audio element. Phones treat that like a music player, at media volume, and once a tap has started it, it keeps playing new sentences by itself. (Web Audio, used before, was paused by phones whenever the microphone opened or closed.) The microphone is opened for each turn and released when it ends, since phones treat a page holding it as a call. A phone can still take back its permission to play, for instance when the microphone opens or closes, so every tap renews it with 50 ms of silence made in the page. When a phone refuses a sentence or pauses it by itself, the sentence is kept and "Tap anywhere to hear the reply." stays under the talk button until a tap plays it; new text arriving doesn't clear it. Each tutor message has a Replay button, which speaks it again from its saved vowelled text. "Slower voice" plays at 0.8×, keeping the pitch.
 - **Progress:** "Progress and all corrections" in the sidebar shows the estimated level, the rules being practised (with those due for a follow-up marked) and those learned, and every correction card across conversations, each with its lesson and a link back to its exchange (`GET /progress`). `GET /cards.csv` exports the cards for flashcard apps such as Anki: front, back, tags.
 - **Status:** "Status" in the sidebar, or tapping the banner shown when a part is down, lists each part (brain, hearing, voice) with the model that runs it, where (GPU or cloud), whether it answers, and when it started and will stop by itself. When a part runs in the cloud it also shows the OpenRouter credit left, which costs nothing to read. It refreshes every 5 seconds while open (`GET /status`).
 - **Login:** with `TUTOR_PASSWORD` set, every route except `/login` and `/assets` needs a signed cookie (HMAC-SHA256 with a per-install secret in `data/.cookie_secret` and the password, valid 30 days, HttpOnly, SameSite=Strict). The WebSocket checks the same cookie, and always checks that a browser's `Origin` is the tutor's own address.
@@ -255,6 +255,7 @@ Each module does one job, and the choice between local and cloud parts is made o
 | `web/js/sessions.js`, `panels.js`, `gloss.js` | The sidebar; Progress, Status and the banner; tapping a word for its meaning |
 | `web/js/connection.js`, `layout.js`, `options.js`, `util.js` | The WebSocket; message order and auto-scroll; the per-browser options; small shared helpers |
 | `scripts/start.sh`, `stop.sh`, `ui.sh` | Start and stop the processes, with readable progress; `ui.sh` is the shared output (also used by `install.sh`) |
+| `scripts/test.sh`, `tests/` | All the tests (see [Tests](#tests)); `tests/fakes/backends.py` stands in for the three models |
 
 ## Hardware and performance
 
@@ -319,6 +320,19 @@ ssh -L 8791:127.0.0.1:8791 <user>@<server>
 ```
 
 The tutor needs both GPUs, so other GPU workloads have to be stopped first.
+
+## Tests
+
+`scripts/test.sh` runs them all, with a time limit on each part; none needs a GPU, a model or a key, or touches the learner record. GitHub Actions runs the same script on every push.
+
+| Part | Where | What it checks |
+|---|---|---|
+| Python logic | `tests/test_*.py` | Text splitting, vowel merging, the learner record, GPU planning, the cloud request format, login, the hearing's pieces, and `SpokenReply` (sentences voiced in order while the reply is still written, spelling fixes, interruption) |
+| Whole conversations | `tests/test_conversation.py` | The real app over its WebSocket, against stand-ins for Gemma, Voxtral and Spark on one port (`tests/fakes/backends.py`): typed and spoken turns, one piece of audio per sentence, Replay, Stop, new, rename, switch and delete, and every HTTP route |
+| The page's code | `tests/js/*.test.js` (Node's own test runner, no packages) | The player on a fake phone that refuses sound before a tap, withdraws permission and pauses sentences by itself; the microphone and its 16 kHz downsampler; the WebSocket and reconnecting; options and helpers |
+| The page in a browser | `tests/browser/` (Playwright, Chromium) | The real page at phone size against the fake models: every reply heard without Replay, also after the phone withdraws permission or pauses a sentence, Stop, the correction cards on a phone, and a whole session on a laptop-sized screen (translation, word meanings, Replay, lessons, options, Progress, Status, conversations) |
+
+Headless Chromium plays sound without a tap, unlike phones, so `tests/browser/phone_rules.js` applies a phone's rule in the page: an audio element may start only during a real tap, or later if a tap has already started it. Run on the player from before this was fixed, the Node tests fail on a hidden "tap to hear" request, on permission withdrawn between turns, and on a sentence the phone paused, which are the three ways a reply could need Replay.
 
 ## Current limits
 
