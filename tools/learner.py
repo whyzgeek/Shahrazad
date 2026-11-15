@@ -10,8 +10,8 @@ ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = Path(os.environ.get("SHAHRAZAD_LEARNER_DB", ROOT / "data/learner.db"))
 NEW_TITLE = "New conversation"
 
-CARDS = yaml.safe_load((ROOT / "cards.yaml").read_text())
-CARDS_AR = yaml.safe_load((ROOT / "cards_ar.yaml").read_text())
+CARDS = yaml.safe_load((ROOT / "grammar/cards.yaml").read_text())
+CARDS_AR = yaml.safe_load((ROOT / "grammar/cards_ar.yaml").read_text())
 CONCEPTS = {k: v["title"] for k, v in CARDS.items()}
 BANDS = ("beginner", "intermediate", "advanced")
 BAND_SCORE = {"beginner": 1.0, "intermediate": 2.0, "advanced": 3.0}
