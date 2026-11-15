@@ -5,9 +5,11 @@ let socket = null;
 
 const isOpen = () => socket && socket.readyState === WebSocket.OPEN;
 
-/** Send one event to the tutor, such as send('text', {text: 'مرحبا'}). */
+/** Send one event to the tutor, such as send('text', {text: 'مرحبا'}). False when not connected. */
 export function send(type, fields = {}) {
-  if (isOpen()) socket.send(JSON.stringify({type, ...fields}));
+  if (!isOpen()) return false;
+  socket.send(JSON.stringify({type, ...fields}));
+  return true;
 }
 
 /** Send a chunk of microphone audio (16 kHz 16-bit mono PCM). */

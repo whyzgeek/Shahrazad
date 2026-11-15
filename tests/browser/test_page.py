@@ -6,6 +6,7 @@ must be heard on a phone without pressing Replay (tests/browser/phone_rules.js g
 Needs Playwright's Python package and its Chromium (pip install playwright; playwright install chromium); the tests
 are skipped without them.
 """
+import json
 from pathlib import Path
 
 import pytest
@@ -76,12 +77,19 @@ class Page:
         self.pg.wait_for_selector("#old", state="detached", timeout=WAIT_MS)
         self.pg.wait_for_selector("#welcome", timeout=WAIT_MS)
 
-    def talk(self, seconds=1.0):
-        """One spoken turn, tapping to start and tapping to send, as on a phone."""
-        self.tap("#talk")
+    def talk(self, seconds=1.0, at=None):
+        """One spoken turn, tapping to start and tapping to send, as on a phone. `at` taps that point of the talk button
+        (x from its left edge, as a fraction of its width) both times, as a finger would, instead of its centre."""
+        if at is None:
+            tap = lambda: self.tap("#talk")
+        else:
+            box = self.pg.locator("#talk").bounding_box()
+            point = (box["x"] + box["width"] * at, box["y"] + box["height"] / 2)
+            tap = lambda: self.pg.touchscreen.tap(*point)
+        tap()
         self.pg.wait_for_function("document.querySelector('#talk').textContent.startsWith('Listening')", timeout=WAIT_MS)
         self.pg.wait_for_timeout(seconds * 1000)
-        self.tap("#talk")
+        tap()
 
     def type_turn(self, text):
         self.pg.fill("#txt", text)
@@ -136,10 +144,20 @@ def test_phone_hears_every_reply_without_replay(phone):
     assert phone.status() != TAP_HINT
 
 
-def test_phone_hears_a_typed_turn(phone):
+def test_tapping_the_right_of_the_talk_button_still_plays_the_reply(phone):
+    """A Stop button used to appear beside the talk button as a tap ended the turn, under a finger on its right side,
+    and the phone then sent that same tap's click to it, which silenced the whole reply. Phones have no Stop now."""
+    phone.talk(at=0.92)
+    phone.wait_for_turn(1)
+    phone.wait_for_sentences(len(REPLY))
+
+
+def test_phone_hears_a_typed_turn(phone, tutor):
     phone.type_turn("مرحبا")
     phone.wait_for_turn(1)
     phone.wait_for_sentences(len(REPLY))
+    events = [json.loads(l)["event"] for l in (tutor.data / "playback.jsonl").read_text().splitlines()]
+    assert {"page", "arrived", "play", "playing", "ended"} <= set(events), "the playback diary reaches the server"
 
 
 def test_a_sentence_the_phone_pauses_waits_for_a_tap(phone):
@@ -171,15 +189,41 @@ def test_before_any_tap_the_page_asks_for_one(browser, tutor):
         page.close()
 
 
-def test_stop_silences_the_tutor(phone):
+def test_talking_again_interrupts_the_tutor(phone):
     phone.type_turn("مرحبا")
-    phone.pg.wait_for_selector("#stop:not([hidden])", timeout=WAIT_MS)
     phone.pg.wait_for_function("window.phone.current && !window.phone.current.paused", timeout=WAIT_MS)
-    phone.tap("#stop")
+    phone.tap("#talk")
+    phone.pg.wait_for_function("document.querySelector('#talk').textContent.startsWith('Listening')", timeout=WAIT_MS)
+    heard = phone.phone("sentences")
     phone.pg.wait_for_timeout(1500)
-    assert phone.phone("sentences") < len(REPLY)
+    assert phone.phone("sentences") == heard < len(REPLY), "nothing more of the reply plays once the learner talks"
+    phone.tap("#talk")
+
+
+def test_phone_has_no_stop_button(phone):
+    phone.type_turn("مرحبا")
+    phone.pg.wait_for_function("window.phone.current && !window.phone.current.paused", timeout=WAIT_MS)
     assert phone.pg.is_hidden("#stop")
-    assert phone.pg.inner_text("#talk") == "Tap to talk"
+
+
+def test_stop_button_silences_the_tutor_on_a_laptop(desktop):
+    desktop.type_turn("مرحبا")
+    desktop.pg.wait_for_selector("#stop:not([hidden])", timeout=WAIT_MS)
+    desktop.pg.wait_for_function("window.phone.current && !window.phone.current.paused", timeout=WAIT_MS)
+    desktop.pg.wait_for_timeout(700)   # a real press comes after Stop has settled (web/js/talk.js: STOP_SETTLE_MS)
+    desktop.pg.click("#stop")
+    desktop.pg.wait_for_timeout(1500)
+    assert desktop.phone("sentences") < len(REPLY)
+    assert desktop.pg.is_hidden("#stop")
+
+
+def test_esc_silences_the_tutor(desktop):
+    desktop.type_turn("مرحبا")
+    desktop.pg.wait_for_function("window.phone.current && !window.phone.current.paused", timeout=WAIT_MS)
+    desktop.pg.keyboard.press("Escape")
+    desktop.pg.wait_for_timeout(1500)
+    assert desktop.phone("sentences") < len(REPLY)
+    assert desktop.pg.inner_text("#talk").startswith("Hold to talk")
 
 
 def test_phone_cards_open_from_a_mistake(phone):
@@ -253,6 +297,34 @@ def test_a_whole_session(desktop, tutor):
     pg.wait_for_selector(".note", timeout=WAIT_MS)
     pg.locator(".sr.cur .ops button >> nth=0").click()
     pg.wait_for_function(f"document.querySelector('#ctitle').textContent === {TITLE!r}", timeout=WAIT_MS)
+
+
+def test_text_size_on_a_phone(phone):
+    pg = phone.pg
+    phone.type_turn("مرحبا")
+    phone.wait_for_turn(1)
+    size = lambda: pg.evaluate("document.querySelector('.m.bot .ar').getBoundingClientRect().height")
+    button_width = pg.evaluate("document.querySelector('#talk').getBoundingClientRect().width")
+    before = size()
+    for _ in range(3):
+        phone.tap("#o-larger")
+    assert pg.inner_text("#o-size") == "150%" and pg.is_disabled("#o-larger")
+    assert size() > before * 1.3, "the reply's text grows"
+    assert pg.evaluate("document.querySelector('#talk').getBoundingClientRect().width") == button_width, "the controls don't"
+    assert pg.evaluate("document.documentElement.scrollWidth <= innerWidth"), "nothing spills off the side of the phone"
+    # A word's meaning still opens beside its word.
+    phone.tap(".m.bot .w >> nth=1")
+    pg.wait_for_function("!document.querySelector('#pop').hidden && document.querySelector('#pop').textContent !== '…'", timeout=WAIT_MS)
+    word = pg.locator(".m.bot .w >> nth=1").bounding_box()
+    pop = pg.locator("#pop").bounding_box()
+    assert abs((pop["y"] + pop["height"]) - word["y"]) < 40 or abs(pop["y"] - (word["y"] + word["height"])) < 40
+    # Remembered after a reload.
+    pg.reload()
+    pg.wait_for_selector("#talk:not([disabled])", timeout=WAIT_MS)
+    assert pg.inner_text("#o-size") == "150%"
+    for _ in range(4):
+        phone.tap("#o-smaller")
+    assert pg.inner_text("#o-size") == "85%" and pg.is_disabled("#o-smaller")
 
 
 def test_starter_button_begins_a_conversation(desktop):

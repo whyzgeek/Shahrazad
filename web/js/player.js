@@ -5,6 +5,7 @@
 // needed Replay.) A phone can still withdraw that permission, for instance when the microphone opens or closes, so
 // every tap renews it with a moment of silence. If the phone refuses or pauses a sentence anyway, the sentence is kept
 // and the page asks for a tap, which plays it.
+import {note} from './diary.js';
 import {opts} from './options.js';
 import {pinStatus} from './util.js';
 
@@ -31,10 +32,12 @@ export function setMuted(value) {
 export function play(bytes) {
   if (muted) return;
   waiting.push(URL.createObjectURL(new Blob([bytes])));
+  note('arrived', {bytes: bytes.byteLength, waiting: waiting.length, playing: current !== null});
   playNext();
 }
 
 export function stopAudio() {
+  if (current || waiting.length) note('stopped', {waiting: waiting.length, playing: current !== null});
   if (current) {
     current = null;
     player.pause();
@@ -46,7 +49,13 @@ export function stopAudio() {
 }
 
 function element() {
-  return player || (player = new Audio());
+  if (!player) {
+    player = new Audio();
+    for (const event of ['stalled', 'waiting', 'suspend', 'emptied']) {
+      player.addEventListener(event, () => current && note(event, {ready: player.readyState, network: player.networkState}));
+    }
+  }
+  return player;
 }
 
 /** Show (or remove) the request for a tap. It stays while the reply's text keeps arriving. */
@@ -77,14 +86,25 @@ function playNext() {
     release();
     askForTap(true);
   };
-  audio.onended = done;
-  audio.onerror = done;
-  audio.onpause = () => {   // paused by the phone: Stop clears current first, and the end sets audio.ended
-    if (!audio.ended) refused();
+  audio.onended = () => {
+    note('ended', {seconds: round(audio.duration)});
+    done();
   };
+  audio.onerror = () => {
+    note('error', {code: audio.error?.code, message: audio.error?.message});
+    done();
+  };
+  audio.onpause = () => {   // paused by the phone: Stop clears current first, and the end sets audio.ended
+    if (audio.ended) return;
+    note('paused by the device', {at: round(audio.currentTime)});
+    refused();
+  };
+  note('play', {waiting: waiting.length, ready: audio.readyState});
   audio.play().then(() => {
+    note('playing', {seconds: round(audio.duration)});
     if (current === mine) askForTap(false);
   }).catch(e => {
+    note('refused', {error: e.name, message: e.message});
     if (e.name === 'NotSupportedError') done();   // a file the browser can't play: skip it
     else refused();                               // refused, or interrupted before it began
   });
@@ -92,17 +112,21 @@ function playNext() {
 
 /** On every tap: play what's waiting, or renew the permission to play with a moment of silence. Either has to start
  * inside the tap itself, not after it. */
-function onTap() {
+function onTap(e) {
   if (current) return;
   if (waiting.length) {
+    note('tap plays what is waiting', {kind: e.type, waiting: waiting.length});
     askForTap(false);
     playNext();
     return;
   }
   const audio = element();
   audio.src = SILENCE;
-  audio.play().catch(() => {});
+  audio.play().then(() => note('tap renewed permission', {kind: e.type}))
+    .catch(error => note('tap could not renew permission', {kind: e.type, error: error.name, message: error.message}));
 }
+
+const round = seconds => Number.isFinite(seconds) ? Math.round(seconds * 100) / 100 : null;
 
 /** A WAV file of silence: 8 kHz, 16-bit, mono. Made here, so a tap never waits for a download. */
 function silentWav(seconds) {
@@ -129,6 +153,7 @@ export function setupPlayer() {
   for (const event of ['pointerup', 'touchend', 'keydown']) addEventListener(event, onTap, {capture: true, passive: true});
   // Back on the page after switching apps: carry on if the phone allows it, or ask for a tap.
   document.addEventListener('visibilitychange', () => {
+    note('page ' + document.visibilityState, {waiting: waiting.length, playing: current !== null});
     if (document.visibilityState === 'visible') playNext();
   });
 }

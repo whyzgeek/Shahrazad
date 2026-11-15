@@ -33,6 +33,8 @@ SKILLS = load_skills()
 FILLER_SEARCH = "لَحْظَةً، سَأَبْحَثُ عَنْ ذَلِكَ."
 FILLER_VIDEO = "لَحْظَةً، سَأَفْتَحُ الْفِيدْيُو."
 LOG = learner.DB_PATH.with_name(f"sessions_timing{LOG_SUFFIX}.jsonl")
+PLAYBACK_LOG = learner.DB_PATH.with_name(f"playback{LOG_SUFFIX}.jsonl")   # web/js/diary.js: how the voice played on each device
+PLAYBACK_LOG_MAX = 2_000_000   # bytes; the older half is dropped beyond this
 
 
 async def make_title(subject_title, turns, http):
@@ -59,6 +61,15 @@ async def retitle_old_sessions(http):
         if title:
             state["titled"] = True
             LEARNER.save_session(s["id"], title, json.dumps(state, ensure_ascii=False))
+
+
+def write_capped(path, line, limit):
+    """Append a line, keeping the file under `limit` bytes by dropping its older half."""
+    if path.exists() and path.stat().st_size > limit:
+        lines = path.read_text().splitlines(keepends=True)
+        path.write_text("".join(lines[len(lines) // 2:]))
+    with open(path, "a") as f:
+        f.write(line + "\n")
 
 
 def subject_view(s):
@@ -518,9 +529,16 @@ class Session:
             "switch": lambda: self.switch_session(int(event["id"])),
             "rename": lambda: self.rename(int(event["id"]), str(event.get("title", ""))),
             "delete": lambda: self.delete(int(event["id"])),
+            "playback": lambda: self.note_playback(event),   # the page's playback diary
         }
         if kind in actions:
             await actions[kind]()
+
+    async def note_playback(self, entry):
+        """One line of the page's playback diary. It holds no speech or text, only what the device's player did."""
+        line = json.dumps({"t": round(time.time(), 3), "conversation": self.session_id,
+                           **{k: v for k, v in entry.items() if k != "type"}}, ensure_ascii=False)[:2000]
+        write_capped(PLAYBACK_LOG, line, PLAYBACK_LOG_MAX)
 
     async def dismiss(self, error_id):
         """The learner said a correction is wrong: the hearing misheard them."""

@@ -87,6 +87,33 @@ test('options are remembered per browser, and tap-to-talk is the default on touc
   assert.equal(reloaded.opts.slow, true, 'remembered after a reload');
 });
 
+test('text size goes up and down in steps, stops at each end, and is remembered', async () => {
+  localStorage.clear();
+  const options = await import('../../web/js/options.js?size');
+  const changed = [];
+  options.onOptionChange(name => changed.push(name));
+  options.setupOptions();
+  const scale = () => document.documentElement.style['--text-scale'];
+  const larger = document.getElementById('o-larger'), smaller = document.getElementById('o-smaller');
+  assert.equal(scale(), '1');
+  assert.equal(document.getElementById('o-size').textContent, '100%');
+  larger.onclick();
+  assert.equal(scale(), '1.15');
+  assert.equal(document.getElementById('o-size').textContent, '115%');
+  assert.equal(localStorage.getItem('shahrazad-size'), '1.15');
+  assert.deepEqual(changed, ['size']);
+  for (let i = 0; i < 10; i++) larger.onclick();
+  assert.equal(scale(), '1.5', 'no larger than the last step');
+  assert.equal(larger.disabled, true);
+  for (let i = 0; i < 10; i++) smaller.onclick();
+  assert.equal(scale(), '0.85', 'no smaller than the first step');
+  assert.equal(smaller.disabled, true);
+  localStorage.setItem('shahrazad-size', '7');   // not one of the steps: back to normal
+  assert.equal((await import('../../web/js/options.js?odd-size')).textSize, 1);
+  localStorage.setItem('shahrazad-size', '1.3');
+  assert.equal((await import('../../web/js/options.js?saved-size')).textSize, 1.3, 'remembered after a reload');
+});
+
 test('helpers', async () => {
   const util = await import('../../web/js/util.js');
   assert.equal(util.plural(1, 'turn'), '1 turn');

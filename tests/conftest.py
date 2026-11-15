@@ -45,8 +45,8 @@ def wait_until_up(url, process, name):
 class Tutor:
     """The running app (url, ws_url) and the fake models behind it (calls: what the app asked them for)."""
 
-    def __init__(self, url, fakes_url):
-        self.url, self.fakes_url = url, fakes_url
+    def __init__(self, url, fakes_url, data):
+        self.url, self.fakes_url, self.data = url, fakes_url, data   # data: the folder of its learner record and logs
         self.ws_url = url.replace("http", "ws", 1) + "/ws"
 
     def calls(self, part=None):
@@ -59,15 +59,16 @@ class Tutor:
 @pytest.fixture(scope="session")
 def tutor():
     fakes_port, app_port = free_port(), free_port()
+    data = Path(tempfile.mkdtemp(prefix="shahrazad-e2e-"))
     env = {**os.environ, "GEMMA_PORT": str(fakes_port), "VOXTRAL_PORT": str(fakes_port), "SPARK_PORT": str(fakes_port),
            "TUTOR_PORT": str(app_port), "TUTOR_HOST": "127.0.0.1", "TUTOR_SSL_CERT": "",
-           "SHAHRAZAD_LEARNER_DB": str(Path(tempfile.mkdtemp(prefix="shahrazad-e2e-")) / "learner.db")}
+           "SHAHRAZAD_LEARNER_DB": str(data / "learner.db")}
     fakes = subprocess.Popen([sys.executable, "-I", str(ROOT / "tests/fakes/backends.py"), str(fakes_port)], env=env)
     app = subprocess.Popen([sys.executable, str(ROOT / "app.py")], cwd=ROOT, env=env)
     try:
         wait_until_up(f"http://127.0.0.1:{fakes_port}/health", fakes, "the fake models")
         wait_until_up(f"http://127.0.0.1:{app_port}/health", app, "the app")
-        yield Tutor(f"http://127.0.0.1:{app_port}", f"http://127.0.0.1:{fakes_port}")
+        yield Tutor(f"http://127.0.0.1:{app_port}", f"http://127.0.0.1:{fakes_port}", data)
     finally:
         for process in (app, fakes):
             process.terminate()

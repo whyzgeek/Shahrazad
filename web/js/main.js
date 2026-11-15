@@ -1,6 +1,7 @@
 // Starts the page: sets up each part, then connects to the tutor and routes each message it sends to the part that
 // shows it. The messages are listed in one table, so it's easy to see what the server can say.
 import {connect} from './connection.js';
+import * as diary from './diary.js';
 import * as conversation from './conversation.js';
 import {addCorrection, setupCorrections} from './corrections.js';
 import {hideGloss, setupGloss} from './gloss.js';
@@ -73,11 +74,13 @@ setupTalk();
 conversation.setupConversation({onStart: sendText});
 onOptionChange(name => {
   if (name === 'marks') conversation.rerender();
+  if (name === 'size') hideGloss();   // its place was worked out for the old size
 });
 
 connect({
   onOpen: () => {
     setConnected(true);
+    diary.connected();
     checkHealth();
   },
   onClose: () => {

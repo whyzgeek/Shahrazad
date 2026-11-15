@@ -1,6 +1,13 @@
 // Talking and typing to the tutor: the talk button (hold, or tap to start and tap to send), the space bar, the Stop
-// button, and the typed message box. The talk button also shows what the tutor is doing.
+// button and Esc, and the typed message box. The talk button also shows what the tutor is doing. Talking again
+// interrupts the tutor.
+//
+// Stop is shown only with a mouse. On a touch screen it appeared beside the talk button, under the finger, as a tap
+// ended the turn, and the phone then delivered that same tap's click to it, silencing the whole reply; there,
+// tapping the talk button is the way to interrupt. A click on Stop just after it appears is ignored all the same,
+// for touch screens that also have a mouse.
 import {send, sendAudio} from './connection.js';
+import {note} from './diary.js';
 import {startTurn} from './conversation.js';
 import {cardsOpen, closeCards} from './corrections.js';
 import {glossOpen, hideGloss} from './gloss.js';
@@ -11,6 +18,8 @@ import {$, setStatus} from './util.js';
 
 const button = $('talk');
 const stopButton = $('stop');
+const STOP_SETTLE_MS = 600;   // a click on Stop sooner than this after it appears is the tap that ended the turn
+let stopShownAt = 0;
 const MAX_TURN_MS = 300000;        // a turn ends by itself after 5 minutes
 const THINKING_TIMEOUT_MS = 120000; // never stuck on "Thinking…"
 let talking = false;
@@ -36,7 +45,7 @@ const LABELS = {
   idle: idleLabel,
 };
 
-/** Show on the talk button what is happening, with Stop while the tutor thinks or speaks. */
+/** Show on the talk button what is happening, with Stop (with a mouse) while the tutor thinks or speaks. */
 export function updateState() {
   if (button.disabled) return;
   if (busy && Date.now() - busySince > THINKING_TIMEOUT_MS) busy = false;
@@ -44,7 +53,9 @@ export function updateState() {
   button.classList.toggle('on', state === 'listen');
   const label = LABELS[state]();
   if (button.textContent !== label) button.textContent = label;
-  stopButton.hidden = !(state === 'think' || state === 'speak');
+  const hidden = touch || !(state === 'think' || state === 'speak');
+  if (stopButton.hidden && !hidden) stopShownAt = Date.now();
+  stopButton.hidden = hidden;
 }
 
 export function setConnected(connected) {
@@ -59,8 +70,9 @@ export function setConnected(connected) {
   }
 }
 
-/** Stop the tutor: its voice, and the reply it's writing. */
-function stopTutor() {
+/** Stop the tutor (the Stop button or Esc): its voice, and the reply it's writing. */
+function stopTutor(how) {
+  note('stop pressed', {how});
   setMuted(true);
   stopAudio();
   setBusy(false);
@@ -119,7 +131,7 @@ function onKeyDown(e) {
   if (e.code === 'Escape') {
     if (glossOpen()) hideGloss();
     else if (cardsOpen()) closeCards();
-    else if (busy || isSpeaking()) stopTutor();
+    else if (busy || isSpeaking()) stopTutor('Esc');
     return;
   }
   if (e.code === 'Space' && !e.repeat && !typing()) {
@@ -151,7 +163,13 @@ export function setupTalk() {
     if (!opts.tap) stopTalking();
   };
   button.onpointercancel = button.onpointerup;
-  stopButton.onclick = stopTutor;
+  stopButton.onclick = () => {
+    if (Date.now() - stopShownAt < STOP_SETTLE_MS) {
+      note('stop ignored', {ms: Date.now() - stopShownAt});
+      return;
+    }
+    stopTutor('button');
+  };
   addEventListener('keydown', onKeyDown);
   addEventListener('keyup', onKeyUp);
   $('f').onsubmit = e => {

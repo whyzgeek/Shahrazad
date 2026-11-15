@@ -543,6 +543,7 @@ footer {
 #talk:disabled {
   opacity: .5
 }
+
 #stop {
   flex: none;
   padding: 0 20px;
@@ -565,11 +566,6 @@ footer {
     min-height: 84px;
     font-size: 21px;
     font-weight: 600;
-    border-radius: 16px
-  }
-
-  #stop {
-    min-width: 84px;
     border-radius: 16px
   }
 
@@ -632,6 +628,32 @@ form button {
 .opt[aria-pressed=true] {
   border-color: var(--acc);
   color: var(--acc)
+}
+
+.opt:disabled {
+  opacity: .4
+}
+
+/* Text size (web/js/options.js): what is read grows, the controls don't. The scrolling panes keep their size and
+   only their contents are scaled, so following new content works as before. Word meanings are placed by screen
+   position, so they grow by font size instead. */
+.sizer {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px
+}
+
+#o-size {
+  font-size: 12px;
+  color: var(--mut);
+  min-width: 3.2em;
+  text-align: center
+}
+
+#log > *,
+#notelist > *,
+#pbody > * {
+  zoom: var(--text-scale, 1)
 }
 #st {
   font-size: 13px;
@@ -950,7 +972,7 @@ mark.err.flash {
   border-radius: 8px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, .18);
   padding: 8px 12px;
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale, 1));
   line-height: 1.5
 }
 

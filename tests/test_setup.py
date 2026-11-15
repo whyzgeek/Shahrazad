@@ -25,6 +25,15 @@ def test_small_cards_suggest_the_cloud():
     assert plan("16", ("brain", "voice")) is not None
 
 
+def test_capped_log_drops_its_older_half(tmp_path):
+    from tools.session import write_capped
+    log = tmp_path / "log.jsonl"
+    for i in range(40):
+        write_capped(log, f"line {i:02d}", limit=200)
+    lines = log.read_text().splitlines()
+    assert log.stat().st_size <= 200 + 10 and lines[-1] == "line 39" and "line 00" not in lines
+
+
 def test_llm_body_local_is_unchanged(monkeypatch):
     monkeypatch.setattr(providers, "BRAIN", "local")
     body = {"messages": [], "id_slot": 1, "chat_template_kwargs": {"enable_thinking": False}}

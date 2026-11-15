@@ -40,7 +40,9 @@ class Node {
     this.dataset = {};
     this.textContent = '';
     this.hidden = false;
+    this.disabled = false;
     this.className = '';
+    this.style = {setProperty(name, value) { this[name] = String(value); }};
     const classes = new Set();
     this.classList = {
       add: c => classes.add(c), remove: c => classes.delete(c), contains: c => classes.has(c),
@@ -104,7 +106,12 @@ class FakeAudio {
     this.allowed = false;
     this.playbackRate = this.defaultPlaybackRate = 1;
     this.onended = this.onerror = this.onpause = null;
+    this.listeners = {};
     phone.elements.push(this);
+  }
+
+  addEventListener(type, fn) {
+    (this.listeners[type] ||= []).push(fn);
   }
 
   play() {

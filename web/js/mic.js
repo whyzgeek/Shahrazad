@@ -2,6 +2,8 @@
 //
 // While a page holds the microphone, phones treat it as a call: replies play at call volume, or not at all. Safari is
 // also told when the page only plays sound.
+import {note} from './diary.js';
+
 let stream = null;
 let context = null;
 
@@ -26,6 +28,7 @@ export async function openMic(onChunk) {
   context.createMediaStreamSource(stream).connect(node);
   node.port.onmessage = e => onChunk(e.data);
   await context.resume();
+  note('microphone on');
 }
 
 export function closeMic() {
@@ -38,4 +41,5 @@ export function closeMic() {
   }
   stream = context = null;
   setAudioSession('playback');
+  note('microphone off');
 }

@@ -162,6 +162,17 @@ def test_new_rename_switch_and_delete(tutor):
     run(tutor, scenario)
 
 
+def test_the_playback_diary_is_saved(tutor):
+    async def scenario(page):
+        await page.send("playback", event="refused", error="NotAllowedError", ms=12)
+        await page.send("text", text="مرحبا")   # the next event is handled after the diary line
+        await page.until("turn")
+    run(tutor, scenario)
+    lines = [json.loads(l) for l in (tutor.data / "playback.jsonl").read_text().splitlines()]
+    assert {"event": "refused", "error": "NotAllowedError", "ms": 12}.items() <= lines[-1].items()
+    assert "type" not in lines[-1] and lines[-1]["conversation"] > 0
+
+
 def test_page_and_routes(tutor):
     page = httpx.get(tutor.url + "/", timeout=10)
     assert page.status_code == 200 and 'type="module"' in page.text
