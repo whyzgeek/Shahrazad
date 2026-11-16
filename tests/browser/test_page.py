@@ -194,6 +194,7 @@ def test_talking_again_interrupts_the_tutor(phone):
     phone.pg.wait_for_function("window.phone.current && !window.phone.current.paused", timeout=WAIT_MS)
     phone.tap("#talk")
     phone.pg.wait_for_function("document.querySelector('#talk').textContent.startsWith('Listening')", timeout=WAIT_MS)
+    phone.pg.wait_for_timeout(300)   # a sentence just reaching its end as the tap came still counts
     heard = phone.phone("sentences")
     phone.pg.wait_for_timeout(1500)
     assert phone.phone("sentences") == heard < len(REPLY), "nothing more of the reply plays once the learner talks"
