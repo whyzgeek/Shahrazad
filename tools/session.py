@@ -21,6 +21,7 @@ SYSTEM = (ROOT / "prompts/system.txt").read_text().strip()
 QUESTION_PROMPT = (ROOT / "prompts/questions.txt").read_text().strip()
 QUESTION_SCHEMA = {"type": "object", "properties": {"questions": {"type": "array", "minItems": 6, "maxItems": 6, "items": {"type": "string"}}}, "required": ["questions"]}
 HISTORY_MESSAGES = 24
+OFFER_NEW_EVERY = 12   # after this many prepared questions on one subject, the tutor offers something new
 MAX_TOOL_ROUNDS = 2
 NEW_TITLE = learner.NEW_TITLE
 LOG_SUFFIX = learner.DB_PATH.stem.removeprefix("learner")   # a second copy with its own record keeps its own logs too
@@ -77,9 +78,17 @@ def subject_view(s):
     return {"kind": s.kind, "title": s.title, "url": s.url, "section": s.index + 1, "sections": len(s.sections)}
 
 
+OPEN = set()   # every open page's Session: two pages (a phone and a laptop) can hold the same conversation
+
+
 class Session:
+    """One open page. Its copy of the conversation (history, subject, the questions planned) is kept in step with the
+    saved one: another page may have taken turns in the same conversation meanwhile."""
+
     def __init__(self, ws, http):
         self.ws, self.http = ws, http
+        self.synced = None   # when the saved conversation last matched this copy
+        OPEN.add(self)
         self.history = []
         self.reply = None  # the reply being written and spoken (or a replay); a new turn cancels it
         self.ear = None    # hearing for the turn being spoken
@@ -111,7 +120,25 @@ class Session:
             row = LEARNER.load_session(self.session_id)
             if row and row["state"] and json.loads(row["state"]).get("titled"):
                 self.title, self.titled = row["title"], True
-        LEARNER.save_session(self.session_id, self.title, self.state_json(self.history, self.ctx.subject or self.saved_subject))
+        if self.behind():   # another page has moved this conversation on: its copy wins
+            return
+        self.synced = LEARNER.save_session(self.session_id, self.title, self.state_json(self.history, self.ctx.subject or self.saved_subject))
+        for other in OPEN:
+            if other is not self and other.session_id == self.session_id:
+                asyncio.get_running_loop().create_task(other.catch_up())
+
+    def behind(self):
+        """Whether another page saved this conversation after this copy was loaded or saved."""
+        saved = LEARNER.session_saved_at(self.session_id) if self.session_id else None
+        return bool(saved and self.synced and saved > self.synced)
+
+    async def catch_up(self):
+        """Another page moved this conversation on. If this page is idle, load that and show it here too; if it's busy,
+        its next turn loads it first."""
+        if (self.reply and not self.reply.done()) or self.ear or not self.behind():
+            return
+        self.restore(self.session_id)
+        await self.send_loaded(warm=False)
 
     def clear_state(self):
         c = self.ctx
@@ -132,17 +159,19 @@ class Session:
             self.titled = d.get("titled", False)
             if d.get("subject"):
                 c.subject = self.saved_subject = Subject(**d["subject"])
+        self.synced = row["updated"]
         return True
 
     async def send_sessions(self):
         await self.send(type="sessions", current=self.session_id, sessions=LEARNER.list_sessions(self.session_id))
 
-    async def send_loaded(self):
+    async def send_loaded(self, warm=True):
         s = self.ctx.subject or self.saved_subject
         turns = [{**t, "spoken": t["spoken"] if all(speakable(x) for x in split_sentences(t["reply"])) else ""} for t in LEARNER.session_turns(self.session_id)]
         await self.send(type="session", id=self.session_id, turns=turns, errors=LEARNER.session_errors(self.session_id), subject=subject_view(s) if s else None)
         await self.send_sessions()
-        self.warm_up()
+        if warm:
+            self.warm_up()
 
     def warm_up(self):
         """Load this session's prompt into the local model's cache before the learner speaks, so the first reply isn't slow."""
@@ -230,6 +259,10 @@ class Session:
             m, card = LEARNER.last_mistake(review), learner.CARDS[review]
             example = f" They recently said «{m['wrong']}» where «{m['correct']}» was right." if m else ""
             notes.append(f"Follow-up to do now: the learner has been practising this rule: {card['rule']}{example} End your reply with one question about the current topic whose natural answer makes them use this structure. Don't say it's a review or mention that earlier mistake, but still deal with any mistake in their last sentence first, as usual.")
+        elif s and s.offer_new:
+            more = " the next part of this material," if s.index + 1 < len(s.sections) else ""
+            notes.append("This subject has been discussed for a while. After responding to what the learner said, offer to move on, so they meet new words and structures: suggest" + more
+                         + " today's news, or a new topic of their choice, and ask which they prefer. If they'd rather carry on with this subject, that's fine too.")
         elif s and s.next_q < len(s.questions):
             notes.append("This discussion is about the subject above. Once the learner has answered your last question, respond to what they said in a sentence, then ask this next question, rephrased if needed so it follows on: "
                          + s.questions[s.next_q] + " If the conversation has wandered from the subject, this question is how you bring it back.")
@@ -348,10 +381,10 @@ class Session:
         else:
             await self.send(type="error", text="No speech was recognized. Please try again.")
 
-    async def analyze(self, turn_id, turn_no, said, last_tutor, source, target):
+    async def analyze(self, turn_id, turn_no, said, last_tutor, reply, source, target):
         """Find the learner's errors after the turn, so it never delays the reply, and update their follow-up schedule."""
         try:
-            found, uses, level, struggling = await learner.find_errors(said, last_tutor, self.http, source, LEARNER.practising())
+            found, uses, level, struggling = await learner.find_errors(said, last_tutor, self.http, source, LEARNER.practising(), reply)
             LEARNER.update_level(level, len(said.split()), len(found), struggling)
             rows = LEARNER.add_errors(turn_id, found)
             wrong = {e["concept"] for e in found}
@@ -386,6 +419,8 @@ class Session:
     async def respond(self, user, t_end, source="typed"):
         """The tutor's reply to one learner turn: written, shown and spoken as it streams, then saved and checked."""
         gen = self.gen
+        if self.behind():   # another page took turns since: carry on from there, not from this page's older copy
+            self.restore(self.session_id)
         review, target = self.begin_turn(user)
         reply = SpokenReply(self.send, lambda vowelled, on_audio: self.speak(vowelled, gen, on_audio), self.http,
                             lambda: gen == self.gen, t_end)
@@ -448,7 +483,7 @@ class Session:
         await self.send(type="turn", id=turn_id, n=LEARNER.turn_count(self.session_id))
         if not youtube.find_video(user) and ARABIC.search(user):
             self.analysis = [a for a in self.analysis if not a.done()]
-            self.analysis.append(asyncio.create_task(self.analyze(turn_id, self.turn_no, user, last_tutor, source, target)))
+            self.analysis.append(asyncio.create_task(self.analyze(turn_id, self.turn_no, user, last_tutor, reply.text, source, target)))
         self.next_question(review)
         if review:
             self.pending_target, self.last_review_turn = review, self.turn_no
@@ -466,11 +501,17 @@ class Session:
     def next_question(self, review):
         """The subject's next prepared question comes up in the next reply (not after a follow-up, which took its place)."""
         subject = self.ctx.subject
-        if subject and subject.planned_for == subject.index and not review:
+        if not subject or review:
+            return
+        if subject.offer_new:   # this reply offered something new instead of the next question
+            subject.offer_new = False
+            return
+        if subject.planned_for == subject.index:
             subject.next_q += 1
-            if subject.next_q >= len(subject.questions):   # used up: plan more for the same subject, so it doesn't drift
+            if subject.next_q >= len(subject.questions):   # used up: plan more, branching out from the subject
                 subject.asked += subject.questions
                 subject.planned_for = -1
+                subject.offer_new = len(subject.asked) % OFFER_NEW_EVERY == 0
 
     def log_turn(self, user, reply):
         LOG.parent.mkdir(exist_ok=True)
@@ -505,7 +546,8 @@ class Session:
             return
         weak = LEARNER.weak_rules()
         weak_note = f" The learner has been making mistakes with: {', '.join(weak)}. Where it fits naturally, write questions whose answer would make them use these structures." if weak else ""
-        asked_note = (" These questions were already asked, so write different ones, built on parts of the subject material that haven't been discussed yet. Take them from the material itself, not from side topics the conversation has moved to: " + " / ".join(s.asked[-12:])) if s.asked else ""
+        asked_note = (" These questions were already asked, so write different ones: " + " / ".join(s.asked[-18:])
+                      + " This time, half may branch out from the subject to wider topics it touches on, such as society, technology, history, culture, work or everyday life, to give the learner new things to talk about. Each must still start from something in the subject or in what the learner said.") if s.asked else ""
         msgs = [{"role": "system", "content": self.system_prompt()}] + self.history + [{"role": "user", "content": QUESTION_PROMPT + learner.QUESTION_STYLE[LEARNER.band()] + weak_note + asked_note}]
         d = await brain.ask_json(self.http, msgs, 700, QUESTION_SCHEMA, timeout=120, slot=brain.DISCUSSION, sampling=brain.SAMPLING)
         s.questions = d["questions"]
@@ -567,3 +609,4 @@ class Session:
         if self.analysis:
             await asyncio.gather(*self.analysis, return_exceptions=True)
         self.save()
+        OPEN.discard(self)

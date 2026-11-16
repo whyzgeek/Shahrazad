@@ -1,5 +1,5 @@
 """The learner's record: sessions, what was said, and errors grouped by grammar concept. Stored locally in data/learner.db."""
-import json, os, re, sqlite3, time
+import difflib, json, os, re, sqlite3, time
 from pathlib import Path
 
 import yaml
@@ -44,18 +44,19 @@ def card_view(concept, band):
 # Speech recognition mishears words but rarely invents a grammar pattern, so word-level errors in speech don't get cards.
 # Speech recognition can mishear a word, which looks just like a wrong word choice. So in speech these are shown as
 # cards (the tutor corrects them aloud anyway) but not tracked: they don't count towards the level or follow-ups.
-NOT_IN_SPEECH = {"word_choice", "other"}
+# A word the tutor corrected because it heard it wrong is a pronunciation card: the learner may have said it unclearly.
+NOT_IN_SPEECH = {"word_choice", "other", "pronunciation"}
 NOT_ARABIC = re.compile(r"[A-Za-z0-9٠-٩]")
 
 SCHEMA = {"type": "object", "properties": {"errors": {"type": "array", "maxItems": 8, "items": {"type": "object", "properties": {
-    "wrong": {"type": "string"}, "right": {"type": "string"}, "concept": {"type": "string", "enum": [*CONCEPTS, "misheard"]}},
+    "wrong": {"type": "string"}, "right": {"type": "string"}, "concept": {"type": "string", "enum": [*(c for c in CONCEPTS if c != "pronunciation"), "misheard"]}},
     "required": ["wrong", "right", "concept"]}},
     "level": {"type": "string", "enum": [*BANDS]}, "struggling": {"type": "boolean"},
     "correct_uses": {"type": "array", "maxItems": 8, "items": {"type": "object", "properties": {"concept": {"type": "string", "enum": [*CONCEPTS]}, "quote": {"type": "string"}}, "required": ["concept", "quote"]}}}, "required": ["errors", "correct_uses", "level", "struggling"]}
 INTERVAL_DAYS = [1, 3, 7, 21]   # gaps between follow-ups, growing as the learner succeeds
 LEARNED_AFTER_DAYS = 2          # used correctly in free speech on this many different days
 
-CHECKLIST = "\n".join(f"- {k}: {v['rule']}" for k, v in CARDS.items() if k not in ("word_choice", "other"))
+CHECKLIST = "\n".join(f"- {k}: {v['rule']}" for k, v in CARDS.items() if k not in ("word_choice", "other", "pronunciation"))
 PROMPT = f"""You review what an Arabic learner just said. The text may come from speech recognition.
 Go through it carefully and list every genuine Modern Standard Arabic grammar error in the learner's own words. Check each noun with its adjective, each possessive phrase, each number and the noun after it, each verb, and each preposition. Report separate errors separately: one phrase can have several. If there are none, return an empty list.
 Report only Arabic language errors. Never report facts about the world, names of people or places, numbers being wrong, disagreement with the material, or foreign words the learner mixed in.
@@ -93,15 +94,164 @@ def clean_errors(text, found, source):
     return out
 
 
-async def find_errors(text, last_tutor, http, source, practising=()):
-    """Returns (errors, concepts from `practising` the learner used correctly, level shown, whether they're struggling)."""
+FOLLOW_REPLY = """The tutor then replied: {reply}
+
+The tutor's reply decides what counts as an error, so that the learner's record matches what they were told. Where it hints at a mistake without correcting it, report the mistake it points at. If the reply doesn't point at any mistake, return an empty errors list."""
+LABEL_CHANGES = """The tutor then replied: {reply}
+
+In its correction, the tutor changed these words of the learner's:
+{changes}
+In "concepts", give each change's number and its concept: the grammar concept the learner got wrong there, "word_choice" for a real word used wrongly, {misheard}or "style" if the learner's words were correct and the tutor only put them differently. Leave "errors" empty."""
+MISHEARD = '"pronunciation" if the words look misheard, as when they make no sense here or sound like the right word (the learner may have said it unclearly), '
+
+PUNCTUATION = ".,،؛:!?؟«»\"'()"
+
+
+def align(said, fixed):
+    """Line two word lists up, pairing a word with a close form of it (خطة, الخطة). Returns (learner's word or None,
+    tutor's word or None, kind) in order, kind being same, close, other or gap. Words left out at either end cost less,
+    because a correction often covers only part of what was said."""
+    END, GAP, SAME, CLOSE, OTHER = 0.3, 0.5, -1.0, 0.2, 0.8   # a matching word earns, so matches are kept
+    def cost(x, y):
+        if x == y:
+            return SAME, "same"
+        return (CLOSE, "close") if difflib.SequenceMatcher(None, x, y).ratio() >= 0.6 else (OTHER, "other")
+    n, m = len(said), len(fixed)
+    gap_a = lambda j: END if j in (0, m) else GAP   # skipping a learner's word, at either end of the correction or inside
+    gap_b = lambda i: END if i in (0, n) else GAP
+    D = [[0.0] * (m + 1) for _ in range(n + 1)]
+    for i in range(1, n + 1):
+        D[i][0] = D[i - 1][0] + END
+    for j in range(1, m + 1):
+        D[0][j] = D[0][j - 1] + END
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            D[i][j] = min(D[i - 1][j - 1] + cost(said[i - 1], fixed[j - 1])[0], D[i - 1][j] + gap_a(j), D[i][j - 1] + gap_b(i))
+    out, i, j = [], n, m
+    while i or j:
+        if i and j and abs(D[i][j] - D[i - 1][j - 1] - cost(said[i - 1], fixed[j - 1])[0]) < 1e-9:
+            out.append((i - 1, j - 1, cost(said[i - 1], fixed[j - 1])[1])); i, j = i - 1, j - 1
+        elif i and abs(D[i][j] - D[i - 1][j] - gap_a(j)) < 1e-9:
+            out.append((i - 1, None, "gap")); i -= 1
+        else:
+            out.append((None, j - 1, "gap")); j -= 1
+    return out[::-1]
+
+
+def tutor_changes(text, reply):
+    """The words the tutor changed in its «نقول» correction, as (learner's words, tutor's words), or None without one.
+
+    Found by lining the correction up with what the learner said, so no change is missed or made up. Words outside
+    the part the correction covers are not changes."""
+    found = re.search(r"نقول\s*:?\s*([^\n]+)", reply)
+    if not found:
+        return None
+    def words(s):
+        out = [w.strip(PUNCTUATION) for w in s.split()]
+        return [w for w in out if normal(w)]
+    said, fixed = words(text), words(found.group(1))
+    pairs = align([normal(w) for w in said], [normal(w) for w in fixed])
+    same = [k for k, p in enumerate(pairs) if p[2] == "same"]
+    if not same:
+        return []   # nothing lines up: not a correction of these words
+    # Group the differences between matching words: a run of close forms is one change (خطة جميلة → الخطة الجميلة),
+    # other words another. Words added or dropped go with the change beside them (أن هم → أنهم), and with the other
+    # words when they sit between the two kinds.
+    groups, gaps = [], []
+    def flush():
+        if gaps:
+            if groups and groups[-1][1][-1][3] == gaps[0][3] - 1:   # right after a change: part of it
+                groups[-1][1].extend(gaps)
+            else:
+                groups.append((gaps[0][3], list(gaps)))
+            gaps.clear()
+    kind = None
+    for k, p in enumerate(pairs):
+        if p[2] == "same":
+            flush()
+            kind = None
+            continue
+        if not (same[0] < k < same[-1]) and p[2] == "gap":
+            continue   # outside what the correction covers
+        if p[2] == "gap":
+            gaps.append((*p, k))
+            continue
+        if kind is None or kind != p[2]:
+            if kind == "other":   # dropped words after other words stay with them
+                flush()
+            groups.append(((gaps or [(*p, k)])[0][3], [*gaps, (*p, k)]))
+            gaps.clear()
+        else:
+            groups[-1][1].extend([*gaps, (*p, k)])
+            gaps.clear()
+        kind = p[2]
+    flush()
+    groups = [(k, [q[:3] for q in run]) for k, run in groups]
+    split = []
+    for k, run in groups:   # a long rewrite: its parts, word for word, as separate changes
+        if len(run) <= 4:
+            split.append((k, run))
+            continue
+        for n, p in enumerate(run):
+            if p[2] == "gap":
+                continue
+            if not split or split[-1][0] < k or split[-1][1][-1][2] != p[2] or run[n - 1][2] == "gap":
+                split.append((k + n, []))
+            split[-1][1].append(p)
+    changes = []
+    for k, run in split:
+        a = [said[p[0]] for p in run if p[0] is not None]
+        b = [fixed[p[1]] for p in run if p[1] is not None]
+        if not a or not b:   # a word added or dropped: show it with the word next to it
+            near = pairs[k - 1] if k > 0 and pairs[k - 1][2] == "same" else pairs[k + len(run)] if k + len(run) < len(pairs) else None
+            if not near or near[2] != "same":
+                continue
+            before = near is pairs[k - 1] if k > 0 else False
+            a = [said[near[0]]] + a if before else a + [said[near[0]]]
+            b = [fixed[near[1]]] + b if before else b + [fixed[near[1]]]
+        if max(len(a), len(b)) <= 6:
+            changes.append((" ".join(a), " ".join(b)))
+    return changes
+
+
+def in_reply(error, reply):
+    """Without a correction, a hint must name the learner's word. The checker alone often claims errors the reply never mentioned."""
+    said = f" {normal(reply)} "
+    return any(len(w) >= 3 and f" {w} " in said for w in normal(error["wrong"]).split())
+
+
+async def find_errors(text, last_tutor, http, source, practising=(), reply=None):
+    """Returns (errors, concepts from `practising` the learner used correctly, level shown, whether they're struggling).
+
+    With the tutor's `reply`, the errors are the ones it corrected or hinted at, so the cards match the conversation.
+    Without it, they are found independently (evals/errors.py measures this)."""
     user = (f"The tutor had just said: {last_tutor}\n\n" if last_tutor else "") + f"The learner said: {text}"
+    changes = tutor_changes(text, reply) if reply else None
+    schema = SCHEMA
+    if changes is not None:
+        listed = "\n".join(f"{n}. «{a}» → «{b}»" for n, (a, b) in enumerate(changes, 1))
+        user += "\n\n" + LABEL_CHANGES.format(reply=reply, changes=listed or "(none)", misheard=MISHEARD if source == "voice" else "")
+        schema = json.loads(json.dumps(SCHEMA))
+        labels = [c for c in CONCEPTS if source == "voice" or c != "pronunciation"] + ["style"]
+        schema["properties"]["concepts"] = {"type": "array", "minItems": len(changes), "maxItems": len(changes), "items": {
+            "type": "object", "properties": {"n": {"type": "integer"}, "concept": {"type": "string", "enum": labels}}, "required": ["n", "concept"]}}
+        schema["required"].append("concepts")
+    elif reply:
+        user += "\n\n" + FOLLOW_REPLY.format(reply=reply)
     if practising:
         user += "\n\nIn correct_uses, list any of these concepts that the learner clearly used correctly, quoting the exact words that show it. Include one only if those words are a real example of that structure, and leave the list empty otherwise: " + ", ".join(practising)
     else:
         user += "\n\nReturn an empty correct_uses list."
-    data = await brain.ask_json(http, [{"role": "system", "content": PROMPT}, {"role": "user", "content": user}], 500, SCHEMA, timeout=90)
-    errors = clean_errors(text, data["errors"], source)
+    data = await brain.ask_json(http, [{"role": "system", "content": PROMPT}, {"role": "user", "content": user}], 500, schema, timeout=90)
+    if changes is not None:   # the tutor's own changes, labelled
+        label = {c.get("n"): c.get("concept") for c in data.get("concepts", []) if isinstance(c, dict)}   # numbered: a skipped one can't shift the rest
+        # A change it didn't label still gets a card, so every correction in the chat has one.
+        found = [{"wrong": a, "right": b, "concept": label.get(n, "other")} for n, (a, b) in enumerate(changes, 1)]
+        errors = clean_errors(text, found, source)
+    else:
+        errors = clean_errors(text, data["errors"], source)
+        if reply:
+            errors = [e for e in errors if in_reply(e, reply)]
     wrong_concepts = {e["concept"] for e in errors}
     said = f" {normal(text)} "
     uses = [u["concept"] for u in data.get("correct_uses", []) if len(normal(u.get("quote", "")).split()) >= 2 and f" {normal(u['quote'])} " in said]
@@ -147,12 +297,19 @@ class Learner:
         return cur.lastrowid
 
     def save_session(self, sid, title, state):
-        self.db.execute("UPDATE sessions SET title=?, state=?, updated=? WHERE id=?", (title, state, time.time(), sid))
+        """Returns when it was saved, so the page that saved it knows its copy is the latest."""
+        now = time.time()
+        self.db.execute("UPDATE sessions SET title=?, state=?, updated=? WHERE id=?", (title, state, now, sid))
         self.db.commit()
+        return now
 
     def load_session(self, sid):
-        row = self.db.execute("SELECT id, title, state FROM sessions WHERE id=?", (sid,)).fetchone()
+        row = self.db.execute("SELECT id, title, state, updated FROM sessions WHERE id=?", (sid,)).fetchone()
         return dict(row) if row else None
+
+    def session_saved_at(self, sid):
+        row = self.db.execute("SELECT updated FROM sessions WHERE id=?", (sid,)).fetchone()
+        return row[0] if row else None
 
     def latest_session(self):
         row = self.db.execute("SELECT id FROM sessions ORDER BY updated DESC, id DESC LIMIT 1").fetchone()

@@ -20,8 +20,10 @@ VOWEL_PROMPT = (ROOT / "prompts/vowelize.txt").read_text().strip() + "\n"
 # What the fake tutor says: three sentences, so a reply is three pieces of audio, as with the real voice.
 REPLY = ["أهلا بك يا صديقي.", "هذه جملة ثانية من الرد.", "كيف حالك اليوم؟"]
 HEARD_PARTIAL, HEARD = "مرحبا", "مرحبا كيف حالك"
-# A learner's sentence with one mistake the fake error check finds: the adjective doesn't agree with its noun.
+# A learner's sentence with one mistake: the adjective doesn't agree with its noun. The fake tutor corrects it with
+# «نقول» before its usual reply, and the fake error check finds it, as the real ones do.
 MISTAKE, CORRECTION = "تفاحة كبير", "تفاحة كبيرة"
+RECAST = f"نقول: {CORRECTION}."
 FATHA = "\u064e"
 TITLE = "محادثة تجريبية"
 TONE_S = 0.4   # each sentence's audio: long enough for a browser to really play it
@@ -72,6 +74,9 @@ def found_errors(schema, body):
         concepts = [c for c in schema["properties"]["errors"]["items"]["properties"]["concept"]["enum"] if c != "misheard"]
         concept = "adjective_gender" if "adjective_gender" in concepts else concepts[0]
         answer["errors"] = [{"wrong": MISTAKE, "right": CORRECTION, "concept": concept}]
+    if "concepts" in schema["properties"]:   # labelling the changes in the tutor's correction: there is one, ours
+        concepts = schema["properties"]["concepts"]
+        answer["concepts"] = [{"n": n, "concept": "adjective_gender"} for n in range(1, concepts["minItems"] + 1)]
     return answer
 
 
@@ -79,8 +84,8 @@ def completion(text):
     return {"choices": [{"message": {"role": "assistant", "content": text}}]}
 
 
-async def stream_reply():
-    words = " ".join(REPLY).split(" ")
+async def stream_reply(sentences):
+    words = " ".join(sentences).split(" ")
     for i, word in enumerate(words):
         piece = word if i == len(words) - 1 else word + " "
         yield "data: " + json.dumps({"choices": [{"delta": {"content": piece}}]}, ensure_ascii=False) + "\n\n"
@@ -95,7 +100,8 @@ async def chat(request: Request):
     last = last if isinstance(last, str) else json.dumps(last, ensure_ascii=False)
     if body.get("stream"):
         calls.append({"part": "brain", "kind": "turn"})
-        return StreamingResponse(stream_reply(), media_type="text/event-stream")
+        sentences = [RECAST, *REPLY] if MISTAKE in last else REPLY
+        return StreamingResponse(stream_reply(sentences), media_type="text/event-stream")
     schema = (body.get("response_format") or {}).get("json_schema", {}).get("schema")
     if schema:
         calls.append({"part": "brain", "kind": "json"})

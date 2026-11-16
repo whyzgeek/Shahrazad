@@ -28,6 +28,7 @@ class Subject:
     next_q: int = 0
     planned_for: int = -1                           # the section the questions were written for
     asked: list = field(default_factory=list)        # questions used up earlier, so a new plan doesn't repeat them
+    offer_new: bool = False                         # the next reply offers to move on to something else
 
     @property
     def text(self):

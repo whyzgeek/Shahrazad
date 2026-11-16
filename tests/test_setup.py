@@ -158,3 +158,22 @@ def test_clip_ear_drops_a_last_piece_without_speech(monkeypatch):
         return await ear.finish()
     assert asyncio.run(go([3000] * 50 + [0] * 5 + [150] * 30)) == "54"   # 3 s of quiet room noise after speaking
     assert asyncio.run(go([150] * 20)) == ""                              # tapped twice without speaking
+
+
+def test_after_two_rounds_of_questions_the_tutor_offers_something_new():
+    from tools.session import Session, OFFER_NEW_EVERY
+    from tools.subjects import Subject
+    session = Session(None, None)
+    s = session.ctx.subject = Subject("video", "قصر الحمراء", "https://youtu.be/x", ["نص"] * 2)
+    session.history = [{"role": "user", "content": "مرحبا"}]
+    note = lambda: session.messages()[-1]["content"]
+    for round_no in range(OFFER_NEW_EVERY // 6):
+        s.questions, s.next_q, s.planned_for = [f"سؤال {round_no}-{n}؟" for n in range(6)], 0, 0   # as plan_questions does
+        for n in range(6):
+            assert not s.offer_new and f"سؤال {round_no}-{n}؟" in note()
+            session.next_question(None)
+    assert s.offer_new and "offer to move on" in note() and "the next part" in note()
+    s.questions, s.next_q, s.planned_for = ["سؤال جديد؟"] * 6, 0, 0   # planned meanwhile, for if they carry on
+    session.next_question(None)
+    assert not s.offer_new and s.next_q == 0, "the offer took this turn: the new questions start next"
+    assert "سؤال جديد؟" in note()

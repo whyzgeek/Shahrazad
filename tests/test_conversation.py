@@ -196,3 +196,38 @@ def test_gloss_and_translate_use_the_brain(tutor):
     translated = httpx.post(tutor.url + "/translate", json={"text": REPLY[0]}, timeout=10)
     assert translated.json() == {"english": TITLE}
     assert httpx.post(tutor.url + "/translate", json={"text": "hello"}, timeout=10).status_code == 400
+
+
+def test_two_pages_on_one_conversation_stay_in_step(tutor):
+    """A phone and a laptop on the same conversation: each carries on from the other's turns, and an idle page is
+    shown them. Each page used to keep its own copy, so the planned questions went back and repeated."""
+    import sqlite3
+
+    async def showing(page, conversation, turns):
+        """Wait until the page shows this conversation with this many turns (earlier updates may come first)."""
+        while True:
+            shown = await page.until("session")
+            if shown["id"] == conversation and len(shown["turns"]) == turns:
+                return
+
+    async def main():
+        async with websockets.connect(tutor.ws_url, max_size=None) as a, websockets.connect(tutor.ws_url, max_size=None) as b:
+            phone, laptop = Page(a), Page(b)
+            await phone.loaded()
+            await laptop.loaded()
+            conversation = await phone.new_conversation()
+            await laptop.send("switch", id=conversation)
+            await showing(laptop, conversation, 0)
+            await phone.send("text", text="مرحبا")
+            await phone.until("timing")
+            await showing(laptop, conversation, 1)   # the idle laptop is shown the phone's turn
+            await laptop.send("text", text="كيف حالك")
+            await laptop.until("timing")
+            await laptop.send("switch", id=conversation)   # saves, and shows the conversation as saved
+            await showing(laptop, conversation, 2)
+            return conversation
+    conversation = asyncio.run(asyncio.wait_for(main(), 120))
+    db = sqlite3.connect(tutor.data / "learner.db")
+    state = json.loads(db.execute("SELECT state FROM sessions WHERE id=?", (conversation,)).fetchone()[0])
+    assert state["turn_no"] == 2, "the laptop carried on from the phone's turn"
+    assert [m["content"] for m in state["history"] if m["role"] == "user"] == ["مرحبا", "كيف حالك"]

@@ -13,7 +13,7 @@ import pytest
 
 playwright = pytest.importorskip("playwright.sync_api")
 
-from fakes.backends import CORRECTION, MISTAKE, REPLY, TITLE
+from fakes.backends import CORRECTION, MISTAKE, RECAST, REPLY, TITLE
 
 PHONE_RULES = (Path(__file__).parent / "phone_rules.js").read_text()
 TAP_HINT = "Tap anywhere to hear the reply."
@@ -234,7 +234,7 @@ def test_phone_cards_open_from_a_mistake(phone):
     assert phone.pg.is_hidden("#notes") or not phone.pg.evaluate("document.body.classList.contains('cards')")
     phone.tap("mark.err")
     phone.pg.wait_for_function("document.body.classList.contains('cards')", timeout=WAIT_MS)
-    assert CORRECTION in phone.pg.locator("#notelist").text_content()
+    assert CORRECTION.split()[-1] in phone.pg.locator("#notelist").text_content()
     phone.tap("#nclose")
     assert not phone.pg.evaluate("document.body.classList.contains('cards')")
 
@@ -245,13 +245,14 @@ def test_a_whole_session(desktop, tutor):
     assert pg.inner_text("#talk") == "Hold to talk (or hold the space bar)"
     desktop.type_turn(f"ذهبت إلى السوق واشتريت {MISTAKE}")
     desktop.wait_for_turn(1)
-    assert pg.inner_text(".m.bot .ar").replace("َ", "") == " ".join(REPLY)
-    assert pg.locator(".m.bot .w").count() >= len(" ".join(REPLY).split())
-    desktop.wait_for_sentences(len(REPLY))
+    said = [RECAST, *REPLY]   # the tutor corrects the mistake first
+    assert pg.inner_text(".m.bot .ar").replace("َ", "") == " ".join(said)
+    assert pg.locator(".m.bot .w").count() >= len(" ".join(said).split())
+    desktop.wait_for_sentences(len(said))
 
     # The correction card, its turn number and lesson.
     pg.wait_for_selector(".note", timeout=WAIT_MS)
-    assert CORRECTION in pg.inner_text(".note") and pg.inner_text(".note .tn") == "#1"
+    assert CORRECTION.split()[-1] in pg.inner_text(".note") and pg.inner_text(".note .tn") == "#1"
     assert pg.locator("mark.err").count()
     pg.click(".note .act button >> nth=0")
     pg.wait_for_selector(".note .lesson", timeout=WAIT_MS)
@@ -267,7 +268,7 @@ def test_a_whole_session(desktop, tutor):
     pg.click(".m.bot .replay")
     pg.wait_for_selector(".replay.on", timeout=WAIT_MS)
     pg.wait_for_selector(".replay:not(.on)", timeout=WAIT_MS)
-    assert desktop.phone("sentences") == 2 * len(REPLY)
+    assert desktop.phone("sentences") == 2 * len(said)
 
     # The options: vowel marks off and on, newest first and back.
     has_marks = "/[\\u064b-\\u0652]/.test(document.querySelector('.m.bot .ar').textContent)"

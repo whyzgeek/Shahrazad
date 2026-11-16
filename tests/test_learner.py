@@ -112,3 +112,47 @@ def test_find_errors_gives_up_after_two_broken_answers():
             return await learner.find_errors("نص", "", h, "typed")
     with pytest.raises(ValueError):
         asyncio.run(go())
+
+
+def test_cards_follow_the_tutors_reply():
+    """With the reply, the cards are the tutor's own corrections, so they match the chat."""
+    import asyncio
+    said = "أنا أظن أن هم يظنون أن جاسوس تدخلت حياته"
+    found = {"errors": [
+        {"wrong": "أن هم", "right": "أنهم", "concept": "pronoun"},
+        {"wrong": "جاسوس", "right": "جاسوسة", "concept": "adjective_gender"},
+        {"wrong": "تدخلت حياته", "right": "تدخل حياته", "concept": "verb_subject_agreement"},   # the tutor said otherwise
+    ], "concepts": [{"n": 1, "concept": "pronoun"}, {"n": 2, "concept": "adjective_gender"}, {"n": 3, "concept": "preposition"}], "correct_uses": [], "level": "intermediate", "struggling": False}
+
+    async def check(reply, answer=found):
+        async with fake_brain(json.dumps(answer, ensure_ascii=False)) as h:
+            errors, *_ = await learner.find_errors(said, "", h, "voice", (), reply)
+        return [(e["wrong"], e["right"], e["concept"]) for e in errors]
+    recast = "نقول: أنا أظن أنهم يظنون أن جاسوسة تدخلت في حياته.\n\nهل تعتقد ذلك؟"
+    assert asyncio.run(check(recast)) == [("أن هم", "أنهم", "pronoun"), ("جاسوس", "جاسوسة", "adjective_gender"),
+                                          ("تدخلت", "تدخلت في", "preposition")], "each change the tutor made, labelled"
+    assert asyncio.run(check(recast, {**found, "concepts": [{"n": 1, "concept": "pronunciation"}, {"n": 2, "concept": "style"}, {"n": 3, "concept": "preposition"}]})) == [
+        ("أن هم", "أنهم", "pronunciation"), ("تدخلت", "تدخلت في", "preposition")], "a rephrasing is no mistake"
+    async def cards(reply, answer):
+        async with fake_brain(json.dumps(answer, ensure_ascii=False)) as h:
+            return (await learner.find_errors(said, "", h, "voice", (), reply))[0]
+    unlabelled = asyncio.run(check(recast, {**found, "concepts": [{"n": 1, "concept": "pronoun"}, {"n": 3, "concept": "style"}]}))
+    assert unlabelled == [("أن هم", "أنهم", "pronoun"), ("جاسوس", "جاسوسة", "other")], "a change left unlabelled still gets a card"
+    heard = asyncio.run(cards(recast, {**found, "concepts": [{"n": 1, "concept": "pronunciation"}, {"n": 2, "concept": "style"}, {"n": 3, "concept": "style"}]}))
+    assert [e["tracked"] for e in heard] == [False], "a misheard word may be the learner's or the hearing's: shown, not counted"
+    assert asyncio.run(check("هذا رأي مثير. لماذا تظن ذلك؟")) == [], "the tutor corrected nothing"
+    assert [e[0] for e in asyncio.run(check("انتبه إلى كلمة «جاسوس». هل هي مذكر أم مؤنث؟"))] == ["جاسوس"], "a hint names the word"
+    assert len(asyncio.run(check(None))) == 3, "without the reply, everything found counts (evals/errors.py)"
+
+
+def test_tutor_changes_line_the_correction_up_with_what_was_said():
+    changes = learner.tutor_changes
+    assert changes("نص", "جواب بلا تصحيح") is None
+    # Only part of what was said is corrected: the rest is not a change. Close forms pair up; a dropped word joins its neighbour.
+    said = "أنا أظن هذه التصميم مرتبطة أن هم أرادوا تمثيل هذه المكان إلى جنة في القرآن"
+    assert changes(said, "نقول: أرادوا تمثيل هذا المكان كجنة في القرآن.\n\nسؤال؟") == [("هذه", "هذا"), ("إلى جنة", "كجنة")]
+    said = "هم قاموا تشكيل هذه خطة جميلة أن توجد كم مبرد تشتغل كمبرد"
+    assert changes(said, "نقول: قاموا بتشكيل هذه الخطة الجميلة لتعمل كمبرد.") == [
+        ("تشكيل", "بتشكيل"), ("خطة جميلة", "الخطة الجميلة"), ("تشتغل", "لتعمل")]
+    assert changes("نعم أنا سأعتذر لموظفي", "نقول: نعم، سأعتذر لموظفيَّ.") == [("نعم أنا", "نعم")], "vowel marks are no change"
+    assert changes("كلام", "نقول: شيء آخر تماما") == [], "nothing lines up"

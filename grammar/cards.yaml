@@ -230,6 +230,11 @@ word_choice:
   reminder: A different word fits better here.
   rule: This word doesn't fit the meaning or the usual way of saying this in Modern Standard Arabic.
 
+pronunciation:
+  title: Pronunciation
+  reminder: The tutor heard a different word here.
+  rule: The tutor heard this word as something else, so it may have been said unclearly. Say it again slowly, with each letter clear. If you said it right, the hearing got it wrong.
+
 other:
   title: Grammar
   reminder: This form needs correcting.
