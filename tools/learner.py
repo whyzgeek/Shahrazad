@@ -42,6 +42,8 @@ def card_view(concept, band):
 
 
 # Speech recognition mishears words but rarely invents a grammar pattern, so word-level errors in speech don't get cards.
+# Speech recognition can mishear a word, which looks just like a wrong word choice. So in speech these are shown as
+# cards (the tutor corrects them aloud anyway) but not tracked: they don't count towards the level or follow-ups.
 NOT_IN_SPEECH = {"word_choice", "other"}
 NOT_ARABIC = re.compile(r"[A-Za-z0-9٠-٩]")
 
@@ -62,6 +64,7 @@ Also judge this text. "level" is the Arabic ability it shows, from its grammar, 
 A short phrase answering the tutor is a fragment: judge it as a fragment, and don't require a full sentence, but still check the words it has.
 "wrong" must be copied exactly from the learner's text and be as short as possible. "right" is the corrected form of just those words.
 Use the concept "misheard" when a word makes no sense here and looks like a speech recognition mistake, not the learner's own error. Use "word_choice" for a real word used wrongly.
+A verb missing the preposition it needs, or with the wrong one, is "preposition", not "word_choice": for "أفكر ذلك", wrong is "أفكر ذلك" and right is "أفكر في ذلك".
 
 Concepts:
 {CHECKLIST}"""
@@ -82,12 +85,11 @@ def clean_errors(text, found, source):
         wrong, right, concept = normal(e.get("wrong", "")), normal(e.get("right", "")), e.get("concept", "other")
         if concept == "misheard" or concept not in CONCEPTS or not wrong or not right or wrong == right or NOT_ARABIC.search(e["wrong"] + e["right"]):
             continue
-        if source == "voice" and concept in NOT_IN_SPEECH:
-            continue
         if f" {wrong} " not in said or set(wrong.split()) & seen:  # overlapping reports of one mistake make one card
             continue
         seen.update(wrong.split())
-        out.append({"wrong": e["wrong"].strip(), "right": e["right"].strip(), "concept": concept, "tracked": True})
+        tracked = not (source == "voice" and concept in NOT_IN_SPEECH)
+        out.append({"wrong": e["wrong"].strip(), "right": e["right"].strip(), "concept": concept, "tracked": tracked})
     return out
 
 

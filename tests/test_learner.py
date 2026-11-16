@@ -27,10 +27,21 @@ def test_clean_errors_keeps_only_real_quotes():
     assert out[0]["tracked"]
 
 
-def test_clean_errors_skips_written_only_concepts_in_speech():
+def test_word_choice_in_speech_is_shown_but_not_tracked():
+    """It may be the hearing's mistake, so it doesn't count towards the level or follow-ups; typed, it does."""
     found = [{"wrong": "السوق", "right": "المتجر", "concept": "word_choice"}]
-    assert learner.clean_errors("ذهبت إلى السوق", found, "voice") == []
-    assert len(learner.clean_errors("ذهبت إلى السوق", found, "typed")) == 1
+    assert [e["tracked"] for e in learner.clean_errors("ذهبت إلى السوق", found, "voice")] == [False]
+    assert [e["tracked"] for e in learner.clean_errors("ذهبت إلى السوق", found, "typed")] == [True]
+
+
+def test_untracked_cards_leave_the_progress_alone(rec):
+    sid = rec.start_session()
+    turn = rec.add_turn(sid, "voice", "ذهبت إلى السوق", "نقول: ذهبت إلى المتجر.", None, [])
+    rows = rec.add_errors(turn, [{"wrong": "السوق", "right": "المتجر", "concept": "word_choice", "tracked": False}])
+    assert rows[0]["tracked"] is False and rec.session_errors(sid)
+    assert not [c for c in rec.progress()["practising"] if c["key"] == "word_choice"]
+    rec.dismiss(rows[0]["id"])   # "That's not what I said" still works
+    assert not rec.session_errors(sid)
 
 
 def test_sessions_rename_and_delete(rec):

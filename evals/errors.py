@@ -20,7 +20,7 @@ CASES = json.loads((_setup.DATA / "errors.json").read_text())
 
 
 async def main():
-    caught = missed = extra = failed = 0
+    caught = missed = extra = failed = untracked = 0
     async with httpx.AsyncClient() as h:
         for c in CASES:
             try:
@@ -29,6 +29,8 @@ async def main():
                 failed += 1
                 print(f"FAILED {type(e).__name__}: {c['said'][:40]}", flush=True)
                 continue
+            untracked += sum(not e["tracked"] for e in found)
+            found = [e for e in found if e["tracked"]]   # scored as before: cards that count. Untracked ones are listed apart
             got = [learner.normal(e["wrong"]) for e in found]
             want = [learner.normal(w) for w in c["wrong"]]
             hit = [w for w in want if any(w in g.split() for g in got)]
@@ -36,6 +38,7 @@ async def main():
             caught += len(hit); missed += len(want) - len(hit); extra += len(wrong_flags)
             if len(hit) < len(want) or wrong_flags:
                 print(f"  {c['said'][:45]:45} expected {c['wrong']} got {[(e['wrong'], e['right']) for e in found]}", flush=True)
-    print(f"{providers.describe()}\ncaught {caught} of {caught + missed} mistakes; flagged {extra} words wrongly; {failed} failed calls")
+    print(f"{providers.describe()}\ncaught {caught} of {caught + missed} mistakes; flagged {extra} words wrongly; {failed} failed calls; "
+          f"{untracked} word-choice cards shown untracked")
 
 asyncio.run(asyncio.wait_for(main(), 900))
