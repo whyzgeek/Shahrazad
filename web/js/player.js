@@ -6,6 +6,7 @@
 // every tap renews it with a moment of silence. If the phone refuses or pauses a sentence anyway, the sentence is kept
 // and the page asks for a tap, which plays it.
 import {note} from './diary.js';
+import {pauseAfter, split} from './drill.js';
 import {opts} from './options.js';
 import {pinStatus} from './util.js';
 
@@ -16,12 +17,46 @@ let current = null;      // the sentence playing now
 let waiting = [];        // object URLs of the sentences still to play
 let muted = false;       // after Stop, audio still on its way is dropped
 const listeners = [];
+// "Repeat after me" (drill.js): each sentence comes with its text, is cut into phrases, and every phrase is followed
+// by a pause for the learner to say it. A tap during the pause goes on at once.
+const DRILL_RATE = 0.8;
+let drill = false;
+let drillTexts = [];     // the text of each sentence still to arrive
+let drilled = new Set(); // the queued phrases that are followed by a pause
+let cutting = Promise.resolve();   // phrases are queued in the order their sentences arrived
+let cuttingCount = 0;
+let gap = null;          // the pause after a phrase
+let drillSent = false;   // all of the reply has arrived: its last phrase needs no pause, the reply ends there
+let session = 0;         // a Stop makes phrases still being cut obsolete
 
 /** Call fn('ended') after each sentence, and fn('stopped') when playback is stopped. */
 export const onPlayback = fn => listeners.push(fn);
 const emit = event => listeners.forEach(fn => fn(event));
 
-export const isSpeaking = () => current !== null || waiting.length > 0;
+export const isSpeaking = () => current !== null || waiting.length > 0 || gap !== null || cuttingCount > 0;
+
+/** Play the next sentences as "Repeat after me", or normally again. */
+export function setDrill(value) {
+  drill = value;
+  drillTexts = [];
+  drillSent = false;
+}
+
+/** All of the reply has arrived. If the pause after its last phrase has already begun, it ends now. */
+export function drillComplete() {
+  drillSent = true;
+  if (gap !== null && !waiting.length && !cuttingCount) {
+    endGap();
+    emit('ended');
+  }
+}
+
+const lastPhrase = () => drillSent && !waiting.length && !cuttingCount;
+
+/** The text of the next sentence to arrive, in "Repeat after me". */
+export function voiceText(text) {
+  if (drill) drillTexts.push(text);
+}
 
 /** Drop voice that is still arriving (after Stop), or accept it again (a new turn). */
 export function setMuted(value) {
@@ -31,12 +66,46 @@ export function setMuted(value) {
 /** Queue one sentence of the tutor's voice (WAV or MP3 bytes). */
 export function play(bytes) {
   if (muted) return;
+  if (drill) return queuePhrases(bytes, drillTexts.shift() || '');
   waiting.push(URL.createObjectURL(new Blob([bytes])));
   note('arrived', {bytes: bytes.byteLength, waiting: waiting.length, playing: current !== null});
   playNext();
 }
 
+function queuePhrases(bytes, text) {
+  const mine = session;
+  cuttingCount++;
+  cutting = cutting.then(async () => {
+    let pieces = null;
+    try {
+      pieces = await split(bytes, text);
+    } catch (e) {
+      note('could not cut', {error: e.name});
+    }
+    if (mine !== session || muted) return;
+    for (const piece of pieces || [{blob: new Blob([bytes])}]) {
+      const url = URL.createObjectURL(piece.blob);
+      waiting.push(url);
+      drilled.add(url);
+    }
+    note('cut into phrases', {phrases: pieces ? pieces.length : 1});
+    playNext();
+  }).finally(() => {
+    if (mine === session) cuttingCount--;
+  });
+}
+
+function endGap() {
+  clearTimeout(gap);
+  gap = null;
+  askForTap(false);
+}
+
 export function stopAudio() {
+  session++;
+  cuttingCount = 0;
+  drillTexts = [];
+  if (gap !== null) endGap();
   if (current || waiting.length) note('stopped', {waiting: waiting.length, playing: current !== null});
   if (current) {
     current = null;
@@ -44,6 +113,7 @@ export function stopAudio() {
   }
   waiting.forEach(url => URL.revokeObjectURL(url));
   waiting = [];
+  drilled = new Set();
   askForTap(false);
   emit('stopped');
 }
@@ -64,11 +134,12 @@ function askForTap(needed) {
 }
 
 function playNext() {
-  if (current || !waiting.length) return;
+  if (current || gap !== null || !waiting.length) return;
   const audio = element();
   const mine = current = {};
   audio.src = waiting[0];
-  audio.defaultPlaybackRate = audio.playbackRate = opts.slow ? 0.8 : 1;
+  const phrase = drilled.has(waiting[0]);
+  audio.defaultPlaybackRate = audio.playbackRate = phrase ? DRILL_RATE : opts.slow ? 0.8 : 1;
   audio.preservesPitch = true;
   const release = () => {
     current = null;
@@ -77,7 +148,18 @@ function playNext() {
   const done = () => {
     if (current !== mine) return;   // stopped meanwhile
     release();
-    URL.revokeObjectURL(waiting.shift());
+    const url = waiting.shift();
+    URL.revokeObjectURL(url);
+    if (drilled.delete(url) && !lastPhrase()) {   // the learner's turn to say it
+      const seconds = Number.isFinite(audio.duration) ? audio.duration : 2;
+      pinStatus('Your turn: say it. Tap to go on.');
+      gap = setTimeout(() => {
+        endGap();
+        playNext();
+        emit('ended');
+      }, pauseAfter(seconds, DRILL_RATE) * 1000);
+      return;
+    }
     playNext();
     emit('ended');
   };
@@ -114,6 +196,13 @@ function playNext() {
  * inside the tap itself, not after it. */
 function onTap(e) {
   if (current) return;
+  if (gap !== null) {   // ready before the pause ends
+    note('tap ends the pause', {kind: e.type});
+    endGap();
+    playNext();
+    emit('ended');
+    return;
+  }
   if (waiting.length) {
     note('tap plays what is waiting', {kind: e.type, waiting: waiting.length});
     askForTap(false);

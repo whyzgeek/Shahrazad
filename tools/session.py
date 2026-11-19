@@ -282,8 +282,9 @@ class Session:
             names += [n for n in SKILLS[self.ctx.skill]["tools"] if n not in names]
         return REGISTRY.schemas(names)
 
-    async def speak(self, vowelled, gen, on_audio=None):
-        """Voice one vowelled sentence, in parts the voice can manage. Stops if a newer turn has taken over."""
+    async def speak(self, vowelled, gen, on_audio=None, with_text=False):
+        """Voice one vowelled sentence, in parts the voice can manage. Stops if a newer turn has taken over.
+        with_text: each part's text goes just before its audio, for "Repeat after me" to cut it into phrases."""
         for part in split_long(vowelled):
             try:
                 audio = await providers.synth(self.http, part)
@@ -295,6 +296,8 @@ class Session:
                 continue
             if gen != self.gen:
                 return
+            if with_text:
+                await self.send(type="voice_text", text=part)
             await self.ws.send_bytes(audio)
             if on_audio:
                 on_audio()
@@ -400,8 +403,8 @@ class Session:
         except Exception as e:  # never let analysis disturb the conversation
             print(f"error analysis failed: {type(e).__name__}: {e}", flush=True)
 
-    async def replay(self, turn_id):
-        """Speak a saved reply again."""
+    async def replay(self, turn_id, drill=False):
+        """Speak a saved reply again; for "Repeat after me" (drill), with the text of each part."""
         gen = self.gen
         row = LEARNER.turn_for_replay(turn_id, self.session_id)
         if not row:
@@ -411,7 +414,7 @@ class Session:
         if not parts:  # older turns weren't saved with their vowels
             parts = [await vowelize(clean_text(s), self.http) for s in split_sentences(row["reply"]) if speakable(s)]
         for sentence in parts:
-            await self.speak(sentence, gen)
+            await self.speak(sentence, gen, with_text=drill)
             if gen != self.gen:
                 return
         await self.send(type="replay_done")
@@ -565,7 +568,7 @@ class Session:
             "stop": self.stop_talk,                         # ...and stopped
             "text": lambda: self.start_reply(self.respond(event["text"], time.time())),
             "cancel": self.cancel_reply,                    # the learner pressed Stop
-            "replay": lambda: self.start_reply(self.replay(int(event["turn"]))),
+            "replay": lambda: self.start_reply(self.replay(int(event["turn"]), bool(event.get("drill")))),
             "dismiss": lambda: self.dismiss(int(event["id"])),
             "reset": self.new_session,
             "switch": lambda: self.switch_session(int(event["id"])),

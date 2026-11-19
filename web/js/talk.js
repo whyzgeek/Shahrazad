@@ -70,8 +70,11 @@ export function setConnected(connected) {
   }
 }
 
-/** Stop the tutor (the Stop button or Esc): its voice, and the reply it's writing. */
-function stopTutor(how) {
+/** Whether the tutor is writing or speaking a reply, so that Stop has something to stop. */
+export const tutorActive = () => busy || isSpeaking();
+
+/** Stop the tutor (the Stop button, Esc, or a remote's Back): its voice, and the reply it's writing. */
+export function stopTutor(how) {
   note('stop pressed', {how});
   setMuted(true);
   stopAudio();
@@ -113,6 +116,12 @@ function stopTalking() {
     send('stop');
     if (!talking) closeMic();
   }, 120);
+}
+
+/** Start a turn, or send the one being spoken (the Enter key of a keyboard or remote control, keys.js). */
+export function toggleTalk() {
+  if (talking) stopTalking();
+  else startTalking();
 }
 
 /** Send a typed message (or a starter's text) as the learner's turn. */

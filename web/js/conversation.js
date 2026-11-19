@@ -4,7 +4,7 @@ import {send} from './connection.js';
 import {addCorrection, clearCorrections, markAllSeen, turnNumbered} from './corrections.js';
 import {followAll, place} from './layout.js';
 import {opts} from './options.js';
-import {isSpeaking, onPlayback, setMuted, stopAudio} from './player.js';
+import {drillComplete, isSpeaking, onPlayback, setDrill, setMuted, stopAudio} from './player.js';
 import {$, ARABIC_LETTER, el, fetchJSON, flash, VOWEL_MARKS} from './util.js';
 
 const log = $('log');
@@ -107,11 +107,12 @@ export function jump(id, errorId) {
   if (mark) flash(mark);
 }
 
-// ---------------------------------------------------------------- under a finished reply: Replay and Translate
+// ------------------------------------------------- under a finished reply: Replay, Repeat after me and Translate
 let replaying = null;   // the Replay button of the reply being replayed
 let replaySent = false; // the server has sent all of it
 
 function endReplay() {
+  setDrill(false);
   replaying?.classList.remove('on');
   replaying = null;
   replaySent = false;
@@ -123,21 +124,27 @@ onPlayback(event => {
 
 export function replayFinished() {
   replaySent = true;
+  drillComplete();
   if (!isSpeaking()) endReplay();
 }
 
 function addActions(node, id) {
   if (node.querySelector('.acts')) return;
   const row = el('div', 'acts');
-  const replay = el('button', 'replay', '▶ Replay');
-  replay.onclick = () => {
+  const start = (button, drill) => {
     stopAudio();
     setMuted(false);
-    replaying = replay;
+    setDrill(drill);
+    replaying = button;
     replaySent = false;
-    replay.classList.add('on');
-    send('replay', {turn: id});
+    button.classList.add('on');
+    send('replay', drill ? {turn: id, drill: true} : {turn: id});
   };
+  const replay = el('button', 'replay', '▶ Replay');
+  replay.onclick = () => start(replay, false);
+  // Slowly, a few words at a time, with a pause after each for the learner to say them.
+  const repeat = el('button', 'repeat', '🗣 Repeat after me');
+  repeat.onclick = () => start(repeat, true);
   const translate = el('button', 'translate', 'Translate');
   let english = null;
   translate.onclick = async () => {
@@ -157,7 +164,7 @@ function addActions(node, id) {
       shown.textContent = 'Translation failed. Please try again.';
     }
   };
-  row.append(replay, translate);
+  row.append(replay, repeat, translate);
   node.append(row);
 }
 

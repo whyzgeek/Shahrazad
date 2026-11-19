@@ -474,6 +474,7 @@ button {
 }
 .acts {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 6px
 }
@@ -487,7 +488,8 @@ button {
   padding: 2px 8px
 }
 
-.replay.on {
+.replay.on,
+.repeat.on {
   background: var(--acc);
   border-color: var(--acc);
   color: #fff
@@ -979,4 +981,17 @@ mark.err.flash {
 #pop .base {
   font-family: 'Noto Naskh Arabic', Amiri, Tahoma, serif;
   font-size: 1.3em
+}
+
+/* Selected with the arrow keys or a remote control (web/js/keys.js) */
+.kb-sel {
+  outline: 3px solid var(--acc);
+  outline-offset: 4px;
+  border-radius: 8px
+}
+
+.acts button.kb-btn {
+  background: var(--acc);
+  border-color: var(--acc);
+  color: #fff
 }

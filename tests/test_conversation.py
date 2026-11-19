@@ -231,3 +231,29 @@ def test_two_pages_on_one_conversation_stay_in_step(tutor):
     state = json.loads(db.execute("SELECT state FROM sessions WHERE id=?", (conversation,)).fetchone()[0])
     assert state["turn_no"] == 2, "the laptop carried on from the phone's turn"
     assert [m["content"] for m in state["history"] if m["role"] == "user"] == ["مرحبا", "كيف حالك"]
+
+
+def test_repeat_after_me_sends_each_parts_text_before_its_audio(tutor):
+    """The page cuts each part of the reply into phrases, so it needs the part's text first."""
+    async def scenario(page):
+        await page.send("text", text="مرحبا")
+        turn = await page.until("turn")
+        await page.until("timing")
+        order = []
+        await page.send("replay", turn=turn["id"], drill=True)
+        while True:
+            m = await asyncio.wait_for(page.ws.recv(), WAIT_S)
+            if isinstance(m, bytes):
+                order.append("audio")
+                continue
+            event = json.loads(m)
+            if event["type"] == "voice_text":
+                order.append(bare(event["text"]))
+            if event["type"] == "replay_done":
+                break
+        assert order == [x for sentence in REPLY for x in (sentence, "audio")]
+        await page.send("replay", turn=turn["id"])   # a plain Replay sends no text
+        heard = page.audio
+        await page.until("replay_done")
+        assert page.audio - heard == len(REPLY) and not page.seen("voice_text")
+    run(tutor, scenario)

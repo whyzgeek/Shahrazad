@@ -5,10 +5,11 @@ import * as diary from './diary.js';
 import * as conversation from './conversation.js';
 import {addCorrection, setupCorrections} from './corrections.js';
 import {hideGloss, setupGloss} from './gloss.js';
+import {setupKeys} from './keys.js';
 import {setupLayout} from './layout.js';
 import {onOptionChange, setupOptions} from './options.js';
 import {checkHealth, setupPanels} from './panels.js';
-import {play, setupPlayer, stopAudio} from './player.js';
+import {play, setupPlayer, stopAudio, voiceText} from './player.js';
 import {renderSessions, setupSessions} from './sessions.js';
 import {sendText, setBusy, setConnected, setupTalk, updateState} from './talk.js';
 import {DEBUG, setStatus} from './util.js';
@@ -34,6 +35,7 @@ const events = {
     if (DEBUG) conversation.showTiming(m.end_of_speech_to_first_audio_s);
   },
   replay_done: () => conversation.replayFinished(),
+  voice_text: m => voiceText(m.text),   // "Repeat after me": the text of the audio that follows
   text_only: () => setStatus('Shown as text only: the Arabic voice can’t read that language.'),
   // What the conversation is about.
   subject: m => {
@@ -71,6 +73,7 @@ setupGloss();
 setupSessions();
 setupPanels();
 setupTalk();
+setupKeys();
 conversation.setupConversation({onStart: sendText});
 onOptionChange(name => {
   if (name === 'marks') conversation.rerender();

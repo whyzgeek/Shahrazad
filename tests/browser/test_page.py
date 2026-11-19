@@ -333,3 +333,90 @@ def test_starter_button_begins_a_conversation(desktop):
     desktop.pg.click("#welcome .starts button >> nth=0")
     desktop.wait_for_turn(1)
     desktop.wait_for_sentences(len(REPLY))
+
+
+def test_repeat_after_me_on_a_phone(phone):
+    """Each sentence, slowly, then a pause for the learner to say it; a tap goes on before the pause ends."""
+    phone.type_turn("مرحبا")
+    phone.wait_for_turn(1)
+    phone.wait_for_sentences(len(REPLY))
+    heard = phone.phone("sentences")
+    phone.tap(".m.bot .repeat")
+    phone.pg.wait_for_selector(".repeat.on", timeout=WAIT_MS)
+    phone.pg.wait_for_function("document.querySelector('#st').textContent.startsWith('Your turn')", timeout=WAIT_MS)
+    assert phone.phone("sentences") == heard + 1, "one phrase, then the learner's turn"
+    phone.tap_anywhere()
+    phone.wait_for_sentences(heard + 2)
+    phone.pg.wait_for_selector(".repeat:not(.on)", timeout=WAIT_MS)   # the last pause ends by itself
+    assert phone.phone("sentences") == heard + len(REPLY)
+    assert not phone.status().startswith("Your turn")
+
+
+def test_a_long_sentence_is_cut_into_phrases_in_the_browser(desktop):
+    """The browser decodes a sentence's audio and cuts it at its pauses (web/js/drill.js)."""
+    pieces = desktop.pg.evaluate("""async () => {
+        const {split, wav} = await import('/web/js/drill.js');
+        const rate = 16000, out = [];
+        for (let w = 1; w <= 14; w++) {   // 14 'words', with real pauses after the 4th and 9th
+            for (let i = 0; i < 0.3 * rate; i++) out.push(0.5 * Math.sin(2 * Math.PI * 220 * i / rate));
+            for (let i = 0; i < (w === 4 || w === 9 ? 0.2 : 0.01) * rate; i++) out.push(0);
+        }
+        const bytes = await wav(Float32Array.from(out), rate).arrayBuffer();
+        const text = Array(14).fill('كلمة').join(' ');
+        return (await split(bytes, text)).map(p => Math.round(p.seconds * 10) / 10);
+    }""")
+    assert len(pieces) == 3 and all(1 <= p <= 2.5 for p in pieces), pieces
+
+
+def test_a_remote_control_moves_around_and_presses_buttons(phone):
+    """Arrow keys and OK (Enter), as an Android remote sends them: replies, their buttons, then the talk button."""
+    pg = phone.pg
+    for n, text in enumerate(("مرحبا", "كيف حالك"), 1):
+        phone.type_turn(text)
+        phone.wait_for_turn(n)
+        pg.wait_for_selector(f".turn:nth-of-type({n}) .m.bot .acts button", timeout=WAIT_MS)
+    pg.keyboard.press("Escape")   # out of the message box
+    selected = lambda: pg.evaluate("[...document.querySelectorAll('#log .m.bot')].indexOf(document.querySelector('.kb-sel'))")
+    pressed = lambda: pg.evaluate("document.querySelector('.kb-btn')?.textContent")
+    pg.keyboard.press("ArrowDown")
+    assert selected() == 1 and pressed() == "▶ Replay", "the first press selects the newest reply"
+    pg.keyboard.press("ArrowRight")
+    assert pressed() == "🗣 Repeat after me"
+    pg.keyboard.press("ArrowUp")
+    assert selected() == 0 and pressed() == "▶ Replay", "up: the reply before, from its first button"
+    pg.keyboard.press("ArrowRight")
+    pg.keyboard.press("ArrowRight")
+    pg.keyboard.press("Enter")
+    pg.wait_for_selector(".m.bot .en", timeout=WAIT_MS)   # Translate pressed
+    pg.keyboard.press("ArrowLeft")
+    pg.keyboard.press("ArrowLeft")
+    pg.keyboard.press("Enter")
+    pg.wait_for_selector(".replay.on", timeout=WAIT_MS)
+    pg.wait_for_selector(".replay:not(.on)", timeout=WAIT_MS)
+    pg.keyboard.press("ArrowDown")
+    pg.keyboard.press("ArrowDown")
+    assert pg.evaluate("document.querySelector('#talk').classList.contains('kb-sel')"), "the talk button is the last stop"
+    pg.keyboard.press("ArrowDown")
+    assert pg.evaluate("document.querySelector('#talk').classList.contains('kb-sel')"), "and stays selected"
+    pg.keyboard.press("Enter")
+    pg.wait_for_function("document.querySelector('#talk').textContent.startsWith('Listening')", timeout=WAIT_MS)
+    pg.wait_for_timeout(300)
+    pg.keyboard.press("Enter")
+    pg.wait_for_function("!document.querySelector('#talk').textContent.startsWith('Listening')", timeout=WAIT_MS)
+
+
+def test_back_stops_the_tutor_and_otherwise_leaves(phone):
+    """A phone's or remote's Back: while the tutor speaks it stops the voice, and the page stays; otherwise it leaves."""
+    pg = phone.pg
+    phone.type_turn("مرحبا")
+    phone.wait_for_turn(1)
+    phone.wait_for_sentences(len(REPLY))
+    page_url = pg.url
+    phone.tap(".m.bot .repeat")   # long enough to still be under way: it pauses after each phrase
+    pg.wait_for_function("document.querySelector('#st').textContent.startsWith('Your turn')", timeout=WAIT_MS)
+    pg.go_back()
+    pg.wait_for_function("document.querySelector('.repeat') && !document.querySelector('.repeat').classList.contains('on')", timeout=WAIT_MS)
+    assert pg.url == page_url and not phone.status().startswith("Your turn"), "stopped, still here"
+    phone.tap_anywhere()   # any tap or key puts the page's history entry back
+    pg.go_back(wait_until="commit")
+    pg.wait_for_function(f"location.href !== {page_url!r}", timeout=WAIT_MS)
